@@ -43,7 +43,7 @@ To run this project on your machine, follow these steps:
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/JonathanReyess/ev-supply-chain-sql-agent.git]
+   git clone https://github.com/JonathanReyess/ev-supply-chain-sql-agent.git
    cd ev-supply-chain-sql-agent
    ```
 
