@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    
+    // CRITICAL FIX: Use NodeNext for module and moduleResolution 
+    // This tells TypeScript to emit runnable code for a Node.js ESM project (type: "module")
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    
+    "lib": ["ES2022"], // Only include Node libraries, DOM is not needed for a backend agent
+    "outDir": "./dist",
+    "rootDir": "./src",
+    
+    // Standard and best practice options
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}
