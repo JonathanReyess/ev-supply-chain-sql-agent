@@ -177,4 +177,3 @@ ev-supply-chain-sql-agent/
 This project is distributed under the **MIT License**.  
 You are free to modify, distribute, and use it for research or production purposes.
 
-```eof
