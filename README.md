@@ -4,8 +4,8 @@
 
 This project implements the **SQL-of-Thought** multi-agent framework to reliably convert complex natural language questions into executable SQL queries against a structured database.
 
-The system is specialized for analyzing Electric Vehicle (EV) supply chain data, focusing on high-accuracy query generation and systematic error correction.  
-It is based on the paper **[“SQL-of-Thought: Multi-agentic Text-to-SQL with Guided Error Correction”](https://arxiv.org/html/2509.00581v1)**. :contentReference[oaicite:0]{index=0}
+
+It is based on the paper **[“SQL-of-Thought: Multi-agentic Text-to-SQL with Guided Error Correction”](https://arxiv.org/html/2509.00581v1)**. 
 
 ---
 
