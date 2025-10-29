@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+pydantic>=2
+orjson
+pandas
+numpy
+python-dateutil
+sqlglot
+ortools
+rich
+click
+openai>=1.43.0    # only used if USE_LLM_ROUTER=true
+google-generativeai>=0.3.0  # only used if USE_LLM_ROUTER=true and LLM_PROVIDER=gemini
+python-dotenv>=1.0.0
