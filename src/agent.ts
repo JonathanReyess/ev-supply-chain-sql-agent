@@ -67,7 +67,7 @@ Analyze the question and identify the relevant tables, columns, and relationship
 }
 
 /**
- * Agent 2: Subproblem Identification (Converts to Gemini API)
+ * Agent 2: Subproblem Identification (Converts to Gemini API & enforces JSON Schema)
  */
 async function subproblemAgent(question: string, linkedSchema: any): Promise<any> {
   console.log('\n🧩 [Subproblem Agent] Breaking down query...');
@@ -79,11 +79,32 @@ Question: "${question}"
 Relevant tables: ${linkedSchema.tables.join(', ')}
 Relevant columns: ${JSON.stringify(linkedSchema.columns)}
 
-Identify which SQL clauses are needed and what each should accomplish. Return a JSON object with:
-
-// ... (Output format definition is the same) ...
-
-Only include clauses that are needed. Return ONLY valid JSON.`;
+Identify which SQL clauses are needed and what each should accomplish. Return the JSON object describing the clauses.`;
+  
+  // --- DEFINITIVE FIX: Rigid JSON Schema for Subproblem Clauses ---
+  const subproblemSchema = {
+    type: "OBJECT",
+    description: "A decomposition of the natural language question into SQL clauses.",
+    properties: {
+      clauses: {
+        type: "OBJECT",
+        description: "A dictionary where keys are SQL clauses (e.g., SELECT, FROM, JOIN) and values are plain text descriptions of what that clause must accomplish.",
+        properties: {
+            "SELECT": { type: "STRING", description: "Describes the columns and aggregations to retrieve (e.g., SUM(Quantity) as Total, Name)." },
+            "FROM": { type: "STRING", description: "The base table(s) to query." },
+            "JOIN": { type: "STRING", description: "The necessary join conditions or join strategy (e.g., JOIN inventory ON C.id = I.id)." },
+            "WHERE": { type: "STRING", description: "The filter conditions (e.g., status = 'Delayed')." },
+            "GROUP BY": { type: "STRING", description: "The columns required for grouping." },
+            "HAVING": { type: "STRING", description: "Post-aggregation filters." },
+            "ORDER BY": { type: "STRING", description: "Sorting criteria." },
+            "LIMIT": { type: "STRING", description: "Row limit for results." },
+        },
+        // All fields are optional because not all queries need GROUP BY or LIMIT
+        propertyOrdering: ["SELECT", "FROM", "JOIN", "WHERE", "GROUP BY", "ORDER BY", "LIMIT"]
+      }
+    },
+    required: ["clauses"], // Only the outer 'clauses' object is strictly required
+  };
 
   const response = await ai.models.generateContent({
     model: MODEL,
@@ -91,11 +112,14 @@ Only include clauses that are needed. Return ONLY valid JSON.`;
     config: {
         temperature: TEMPERATURE,
         responseMimeType: 'application/json',
+        responseSchema: subproblemSchema, // <-- Apply the Schema
     },
   });
 
   const result = JSON.parse(response.text || '{}');
-  console.log('  ✓ Identified clauses:', Object.keys(result.clauses || {}));
+  const identifiedClauses = Object.keys(result.clauses || {});
+  console.log('  ✓ Identified clauses:', identifiedClauses);
+  
   return result;
 }
 

@@ -68,10 +68,14 @@ export async function executeSQL(sql: string, dbPath: string): Promise<SQLExecut
           return;
         }
 
-        // FIX 2: Prefix table references with the new ev_db schema
-        // NOTE: This regex prefixing relies on the LLM generating simple FROM/JOIN statements.
-        const sqlWithSchema = cleanedSQL.replace(/FROM\s+(\w+)/gi, 'FROM ev_db.$1')
-                                        .replace(/JOIN\s+(\w+)/gi, 'JOIN ev_db.$1');
+        let sqlWithSchema = cleanedSQL;
+        
+        // Only add prefix if tables are NOT already prefixed with ev_db
+        if (!cleanedSQL.includes('ev_db.')) {
+          sqlWithSchema = cleanedSQL
+            .replace(/FROM\s+(\w+)/gi, 'FROM ev_db.$1')
+            .replace(/JOIN\s+(\w+)/gi, 'JOIN ev_db.$1');
+        }
 
         db.all(sqlWithSchema, (err, rows) => {
           const executionTime = Date.now() - startTime;
