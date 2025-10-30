@@ -59,16 +59,22 @@ def _gemini_client():
     return genai, HarmCategory, HarmBlockThreshold
 
 SYSTEM = (
-  "You are an intent router. Return only JSON with: intent, slots (object), confidence (0-1)."
+  "You are an intent router for dock operations. Return only JSON with: intent, slots (object), confidence (0-1)."
 )
 
 USER_TMPL = """Question: {q}
 
-Intents: earliest_eta_part (needs part, location), why_reassigned (needs door), door_schedule (needs location).
+Intents:
+- earliest_eta_part (slots: part?, location?)
+- door_schedule (slots: location?)
+- why_reassigned (slots: door?)
+- count_schedule (slots: location?, job_type? [inbound|outbound|all], horizon_min? [int])
 
 Schema: {schema}
 
-Rules: Extract part/location/door. If not dock-related, use intent="unknown".
+Rules:
+- If not dock-related, use intent=\"unknown\".
+- Extract clean identifiers: 'part' like C00015, 'location' like Fremont CA, 'door' like FCX-D04, 'job_type' inbound/outbound.
 
 Return only valid JSON."""
 
@@ -176,7 +182,7 @@ def llm_route(question: str) -> Tuple[str, Dict[str, Any], float]:
 
 # Best-effort variant that must choose the closest intent even if slots are incomplete
 BEST_EFFORT_SYSTEM = (
-  "You are an intent router. Always choose the closest intent among: earliest_eta_part, why_reassigned, door_schedule. "
+  "You are an intent router. Always choose the closest intent among: earliest_eta_part, why_reassigned, door_schedule, count_schedule. "
   "Return JSON only with keys: intent, slots (object), confidence (0-1). If a slot is unknown, omit it."
 )
 
@@ -247,7 +253,7 @@ def llm_route_best_effort(question: str) -> Tuple[str, Dict[str, Any], float]:
         conf   = float(parsed.get("confidence",0))
         dt_ms  = int((time.time()-t0)*1000)
         # Ensure a valid intent is always returned
-        if intent not in ("earliest_eta_part","why_reassigned","door_schedule"):
+        if intent not in ("earliest_eta_part","why_reassigned","door_schedule","count_schedule"):
             intent = "door_schedule"
         return intent, {"slots":slots, "confidence":conf, "latency_ms":dt_ms}, conf
     except Exception:

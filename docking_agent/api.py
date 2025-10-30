@@ -45,40 +45,84 @@ def _conn():
 def handle_earliest_eta_part(part: str, location: str) -> Dict[str, Any]:
     part = (part or "").strip()
     location = (location or "").strip()
-    if not part or not location:
-        return {"answer": None, "explanation": "Missing part or location", "inputs": {"part": part, "location": location}}
-    # If the user passed a component ID like C00015, match directly. Otherwise try token match on component name
-    q = {
-        "sql": """
-            WITH pos_for_part AS (
-              SELECT DISTINCT li.po_id
-              FROM po_line_items li
-              JOIN components c ON c.componentid = li.componentid
-              WHERE (
-                c.componentid = ?
-                OR lower(c.name) LIKE '%' || lower(?) || '%'
-              )
-            )
-            SELECT t.truck_id, t.po_id, t.location, t.eta_utc, t.unload_min, t.priority
-            FROM inbound_trucks t
-            JOIN pos_for_part p ON p.po_id = t.po_id
-            WHERE t.location = ?
-            ORDER BY datetime(t.eta_utc) ASC
-            LIMIT 1;
-        """,
-        "params": (part, part, location)
-    }
     conn = _conn(); cur = conn.cursor()
     try:
-        row = cur.execute(q["sql"], q["params"]).fetchone()
+        # Case 1: part and location provided
+        if part and location:
+            row = cur.execute(
+                """
+                WITH pos_for_part AS (
+                  SELECT DISTINCT li.po_id
+                  FROM po_line_items li
+                  JOIN components c ON c.componentid = li.componentid
+                  WHERE (
+                    c.componentid = ? OR lower(c.name) LIKE '%' || lower(?) || '%'
+                  )
+                )
+                SELECT t.truck_id, t.po_id, t.location, t.eta_utc, t.unload_min, t.priority
+                FROM inbound_trucks t
+                JOIN pos_for_part p ON p.po_id = t.po_id
+                WHERE t.location = ?
+                ORDER BY datetime(t.eta_utc) ASC
+                LIMIT 1;
+                """,
+                (part, part, location)
+            ).fetchone()
+            if not row:
+                return {"answer": None, "explanation": "No inbound trucks found for that part/location", "inputs": {"part": part, "location": location}}
+            truck_id, po_id, loc, eta_utc, unload_min, priority = row
+            return {"answer": eta_utc, "explanation": "Earliest inbound truck ETA for the part at the location", "inputs": {"part": part, "location": location, "truck_id": truck_id, "po_id": po_id, "unload_min": unload_min, "priority": priority}}
+        # Case 2: part only → earliest across all locations
+        if part and not location:
+            row = cur.execute(
+                """
+                WITH pos_for_part AS (
+                  SELECT DISTINCT li.po_id
+                  FROM po_line_items li
+                  JOIN components c ON c.componentid = li.componentid
+                  WHERE c.componentid = ? OR lower(c.name) LIKE '%' || lower(?) || '%'
+                )
+                SELECT t.truck_id, t.po_id, t.location, t.eta_utc, t.unload_min, t.priority
+                FROM inbound_trucks t
+                JOIN pos_for_part p ON p.po_id = t.po_id
+                ORDER BY datetime(t.eta_utc) ASC
+                LIMIT 1
+                """,
+                (part, part)
+            ).fetchone()
+            if not row:
+                return {"answer": None, "explanation": "No inbound trucks found for that part", "inputs": {"part": part}}
+            truck_id, po_id, loc, eta_utc, unload_min, priority = row
+            return {"answer": eta_utc, "explanation": "Earliest inbound ETA for the part (any location)", "inputs": {"part": part, "location": loc, "truck_id": truck_id, "po_id": po_id}}
+        # Case 3: location only → earliest inbound at that location
+        if location and not part:
+            row = cur.execute(
+                """
+                SELECT truck_id, po_id, location, eta_utc, unload_min, priority
+                FROM inbound_trucks
+                WHERE location = ?
+                ORDER BY datetime(eta_utc) ASC
+                LIMIT 1
+                """,
+                (location,)
+            ).fetchone()
+            if not row:
+                return {"answer": None, "explanation": "No inbound trucks found at location", "inputs": {"location": location}}
+            truck_id, po_id, loc, eta_utc, unload_min, priority = row
+            return {"answer": eta_utc, "explanation": "Earliest inbound ETA at the location", "inputs": {"location": loc, "truck_id": truck_id, "po_id": po_id}}
+        # Case 4: neither → global earliest inbound
+        row = cur.execute(
+            """
+            SELECT truck_id, po_id, location, eta_utc, unload_min, priority
+            FROM inbound_trucks
+            ORDER BY datetime(eta_utc) ASC
+            LIMIT 1
+            """
+        ).fetchone()
         if not row:
-            return {"answer": None, "explanation": "No inbound trucks found for that part/location", "inputs": {"part": part, "location": location}}
+            return {"answer": None, "explanation": "No inbound trucks available", "inputs": {}}
         truck_id, po_id, loc, eta_utc, unload_min, priority = row
-        return {
-            "answer": eta_utc,
-            "explanation": "Earliest inbound truck ETA for the part at the location",
-            "inputs": {"part": part, "location": location, "truck_id": truck_id, "po_id": po_id, "unload_min": unload_min, "priority": priority}
-        }
+        return {"answer": eta_utc, "explanation": "Global earliest inbound truck ETA", "inputs": {"location": loc, "truck_id": truck_id, "po_id": po_id}}
     finally:
         conn.close()
 
@@ -229,6 +273,55 @@ def handle_door_schedule_for_door(door_id: str) -> Dict[str, Any]:
     finally:
         conn.close()
 
+def handle_global_schedule(limit_per_location: int = 5) -> Dict[str, Any]:
+    now = datetime.utcnow(); horizon = now + timedelta(hours=8)
+    conn=_conn(); cur=conn.cursor()
+    try:
+        rows = cur.execute(
+            """
+            SELECT location, door_id, job_type, ref_id, start_utc, end_utc, status
+            FROM dock_assignments
+            WHERE datetime(end_utc) >= ? AND datetime(start_utc) <= ?
+            ORDER BY location, datetime(start_utc) ASC
+            """,
+            (now.isoformat(sep=' '), horizon.isoformat(sep=' '))
+        ).fetchall()
+        out=[]; seen={}
+        for r in rows:
+            loc=r[0]
+            seen[loc]=seen.get(loc,0)
+            if seen[loc] >= limit_per_location:
+                continue
+            seen[loc]+=1
+            out.append({
+                "location": loc, "door_id": r[1], "job_type": r[2], "ref_id": r[3],
+                "start_utc": r[4], "end_utc": r[5], "status": r[6]
+            })
+        return {"answer": out, "explanation": "Upcoming assignments across locations (top per location)", "inputs": {}}
+    finally:
+        conn.close()
+
+def handle_count_schedule(location: str|None, job_type: str|None, horizon_min: int|None) -> Dict[str, Any]:
+    location = (location or "").strip()
+    job_type = (job_type or "all").strip().lower()
+    horizon_min = int(horizon_min) if horizon_min not in (None, "", []) else 480
+    now = datetime.utcnow(); horizon = now + timedelta(minutes=horizon_min)
+    conn=_conn(); cur=conn.cursor()
+    try:
+        sql = [
+            "SELECT COUNT(*) FROM dock_assignments WHERE datetime(end_utc)>=? AND datetime(start_utc)<=?"
+        ]
+        params = [now.isoformat(sep=' '), horizon.isoformat(sep=' ')]
+        if location:
+            sql.append("AND location=?"); params.append(location)
+        if job_type in ("inbound","outbound"):
+            sql.append("AND job_type=?"); params.append(job_type)
+        row = cur.execute(" ".join(sql), tuple(params)).fetchone()
+        cnt = row[0] if row else 0
+        return {"answer": int(cnt), "explanation": "Count of assignments in horizon", "inputs": {"location": location or None, "job_type": job_type, "horizon_min": horizon_min}}
+    finally:
+        conn.close()
+
 
 @app.post("/qa")
 def qa(req: QARequest):
@@ -238,7 +331,10 @@ def qa(req: QARequest):
     elif intent == "why_reassigned":
         out = handle_why_reassigned(slots.get("door",""))
     elif intent == "door_schedule":
-        out = handle_door_schedule(slots.get("location",""))
+        loc = slots.get("location","")
+        out = handle_door_schedule(loc) if loc else handle_global_schedule()
+    elif intent == "count_schedule":
+        out = handle_count_schedule(slots.get("location"), slots.get("job_type"), slots.get("horizon_min"))
     else:
         # Re-ask LLM with a best-effort routing prompt, then call DB-backed handlers
         intent2, meta2, conf2 = llm_router.llm_route_best_effort(req.question)
@@ -247,6 +343,8 @@ def qa(req: QARequest):
             out = handle_earliest_eta_part(slots2.get("part",""), slots2.get("location",""))
         elif intent2 == "why_reassigned":
             out = handle_why_reassigned(slots2.get("door",""))
+        elif intent2 == "count_schedule":
+            out = handle_count_schedule(slots2.get("location"), slots2.get("job_type"), slots2.get("horizon_min"))
         else:  # door_schedule default, but tailor to question ids if present
             q = req.question or ""
             import re
@@ -264,8 +362,8 @@ def qa(req: QARequest):
                     if m:
                         out = handle_door_schedule_for_door(m.group(0))
                     else:
-                        loc = slots2.get("location", "Fremont CA")
-                        out = handle_door_schedule(loc)
+                        loc = slots2.get("location")
+                        out = handle_door_schedule(loc) if loc else handle_global_schedule()
         # prefer confidence from second pass when used
         conf = conf2
         source = "llm"
