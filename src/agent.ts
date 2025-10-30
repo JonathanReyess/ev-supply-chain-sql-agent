@@ -10,6 +10,9 @@ import { dirname, join } from 'path';
 import { readFileSync } from 'fs';
 import { getCompleteSchema, formatSchemaForPrompt } from './tools/schema-tool.js';
 import { executeSQL } from './tools/sql-executor-tool.js';
+// NEW IMPORTS FOR PLOTTING TOOL: Assuming PlottingInputJSONSchema is exported by tools/plotting-tool.ts
+import { plottingTool, generatePlot, PlottingInput, PlottingInputJSONSchema } from './tools/plotting-tool.js'; 
+
 
 dotenv.config();
 
@@ -31,6 +34,26 @@ const TEMPERATURE = parseFloat(process.env.TEMPERATURE || '1');
 // Load resources
 // NOTE: Ensure error-taxonomy.json exists in the /data folder
 const errorTaxonomy = JSON.parse(readFileSync(ERROR_TAXONOMY_PATH, 'utf-8'));
+// New constant for KPI prompt path (assuming you create kpi-metric-agent.md)
+const KPI_METRIC_PROMPT_PATH = join(__dirname, 'prompts/kpi-metric-agent.md');
+
+/**
+ * Helper function to convert BigInts in an array of results to strings for JSON serialization.
+ * This is crucial for fixing the BigInt serialization errors with JSON.stringify().
+ */
+function convertBigIntsToStrings(data: any[]): any[] {
+  return data.map(row => {
+      const converted: any = {};
+      for (const [key, value] of Object.entries(row)) {
+          converted[key] = typeof value === 'bigint' ? value.toString() : value;
+      }
+      return converted;
+  });
+}
+
+// ----------------------------------------------------------------------
+// AGENTS 1 - 6 (Schema Linking, Subproblem, KPI, Plan, SQL Gen, Correction)
+// ----------------------------------------------------------------------
 
 /**
  * Agent 1: Schema Linking (Converts to Gemini API)
@@ -124,10 +147,49 @@ Identify which SQL clauses are needed and what each should accomplish. Return th
 }
 
 /**
+ * Agent X: KPI Metric Decomposition Agent
+ */
+async function kpiMetricAgent(question: string, linkedSchema: any): Promise<any> {
+  console.log('\n📈 [KPI Metric Agent] Decomposing KPI...');
+
+  const prompt = `${readFileSync(KPI_METRIC_PROMPT_PATH, 'utf-8')}
+
+## Question
+"${question}"
+
+## Schema Information
+Tables: ${linkedSchema.tables.join(', ')}
+Columns: ${JSON.stringify(linkedSchema.columns, null, 2)}
+Foreign Keys: ${JSON.stringify(linkedSchema.foreign_keys, null, 2)}
+
+Analyze the question and break down the KPI into its core components. Return ONLY valid JSON as specified.`;
+
+  const response = await ai.models.generateContent({
+    model: MODEL,
+    contents: prompt,
+    config: {
+        temperature: TEMPERATURE,
+        responseMimeType: 'application/json',
+    },
+  });
+
+  const result = JSON.parse(response.text || '{}');
+  console.log('  ✓ Decomposed KPI:', result.kpi_name);
+  return result;
+}
+
+/**
  * Agent 3: Query Plan Generation (Chain-of-Thought) (Converts to Gemini API)
  */
-async function queryPlanAgent(question: string, linkedSchema: any, subproblems: any): Promise<any> {
+async function queryPlanAgent(question: string, linkedSchema: any, planInput: any): Promise<any> {
   console.log('\n🤔 [Query Plan Agent] Generating execution plan...');
+
+  // The prompt now handles both 'subproblems' (standard) and 'kpiDecomposition' (new)
+  const isKpiPlan = !planInput.clauses;
+  const inputSection = isKpiPlan 
+    ? `## KPI Decomposition\n${JSON.stringify(planInput, null, 2)}`
+    : `## Identified Clauses\n${JSON.stringify(planInput.clauses, null, 2)}`;
+
 
   const prompt = `${readFileSync(join(__dirname, 'prompts/query-planning.md'), 'utf-8')}
 
@@ -139,8 +201,7 @@ Tables: ${linkedSchema.tables.join(', ')}
 Columns: ${JSON.stringify(linkedSchema.columns, null, 2)}
 Foreign Keys: ${JSON.stringify(linkedSchema.foreign_keys, null, 2)}
 
-## Identified Clauses
-${JSON.stringify(subproblems.clauses, null, 2)}
+${inputSection}
 
 Create a detailed step-by-step query plan using Chain-of-Thought reasoning. Return ONLY valid JSON as specified.`;
 
@@ -174,19 +235,22 @@ ${JSON.stringify(queryPlan, null, 2)}
 Schema:
 ${JSON.stringify(linkedSchema, null, 2)}
 
+IMPORTANT: For WHERE clause string comparisons, always use case-insensitive matching with LOWER():
+- Example: WHERE LOWER(type) = LOWER('Battery')
+- Example: WHERE LOWER(status) = LOWER('delayed')
+
 Generate the SQL query that implements this plan. Return ONLY the SQL query, no explanations or markdown. The query should be executable and syntactically correct.`;
 
-  // Gemini API call for text output (no JSON requirement here)
   const response = await ai.models.generateContent({
     model: MODEL,
     contents: prompt,
     config: {
-        temperature: TEMPERATURE,
+      temperature: TEMPERATURE,
     },
-  });
+  },
+  );
 
   const sql = response.text?.trim() || '';
-  // Clean up SQL (remove markdown code blocks if present)
   const cleanedSQL = sql
     .replace(/```sql\n?/g, '')
     .replace(/```\n?/g, '')
@@ -288,8 +352,83 @@ Generate the corrected SQL query that addresses all issues identified in the cor
   return cleanedSQL;
 }
 
+
+// ----------------------------------------------------------------------
+// NEW VISUALIZATION AGENT (Agent 7)
+// ----------------------------------------------------------------------
+
 /**
- * Main SQL-of-Thought Pipeline (Unchanged logic)
+ * Agent 7: Visualization Agent (Integrated into Orchestrator)
+ */
+async function visualizeResults(question: string, results: any[]): Promise<any> {
+  console.log('\n🎨 [Visualization Agent] Checking if visualization is needed...');
+
+  // Heuristic: Visualize if the question asks for a comparison, trend, or measure (KPI)
+  const shouldVisualize = 
+    question.toLowerCase().includes('average') || 
+    question.toLowerCase().includes('total') ||
+    question.toLowerCase().includes('count') ||
+    question.toLowerCase().includes('show me');
+
+  if (!shouldVisualize) {
+    console.log('  - Visualization skipped (Question does not imply charting).');
+    return null;
+  }
+  
+  console.log('  - Question implies charting. Preparing input for Plotting Tool...');
+
+  // Prepare schema context: Convert BigInts to strings before JSON.stringify for the prompt
+  // This fixes the TypeError: Do not know how to serialize a BigInt
+  const schemaContext = convertBigIntsToStrings(results.slice(0, 1)); 
+
+  // The LLM (Gemini) must now decide the plot parameters based on the question and results schema
+  const prompt = `You are a Visualization Planner. Given the user question and the structure of the successful SQL results, determine the best parameters for the 'generate_plot' tool.
+
+Question: "${question}"
+
+SQL Result Schema (Keys and one example row):
+${JSON.stringify(schemaContext, null, 2)}
+
+Identify the column for the X-axis (dimension), the column for the Y-axis (metric), and the best plot type. Return ONLY the JSON object that conforms to the 'generate_plot' tool input schema.
+NOTE: Ensure your response is a valid JSON object matching the 'generate_plot' input schema, omitting the 'query_results' key.`;
+
+  // --- CRITICAL FIX: Use the clean JSON Schema for API responseSchema ---
+  // This prevents the ApiError: Unknown name "_def"
+  try {
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents: prompt,
+      config: {
+        temperature: 0.0, // Low temperature for factual tool parameter generation
+        responseMimeType: 'application/json',
+        responseSchema: PlottingInputJSONSchema, // Using the clean JSON Schema
+      },
+    });
+
+    const plotParams: PlottingInput = JSON.parse(response.text || '{}');
+    
+    // Manually add the actual data to the input object before execution
+    plotParams.query_results = results; 
+
+    // Execute the plotting tool
+    const plotOutput = await generatePlot(plotParams);
+
+    console.log(`  ✓ Generated plot: ${plotOutput.plot_description}`);
+    return plotOutput;
+
+  } catch (e) {
+    console.error('  ❌ Failed to parse plotting parameters or API call failed:', e);
+    // If the LLM returns invalid JSON or the API fails, the pipeline must log and continue
+    return null; 
+  }
+}
+
+// ----------------------------------------------------------------------
+// MAIN ORCHESTRATOR
+// ----------------------------------------------------------------------
+
+/**
+ * Main SQL-of-Thought Pipeline (The Orchestrator)
  */
 async function sqlOfThought(question: string): Promise<void> {
   console.log('\n' + '='.repeat(80));
@@ -306,11 +445,31 @@ async function sqlOfThought(question: string): Promise<void> {
     // Step 2: Schema Linking
     const linkedSchema = await schemaLinkingAgent(question, schema);
 
-    // Step 3: Subproblem Identification
-    const subproblems = await subproblemAgent(question, linkedSchema);
+    // --- Step 3 & 4: Orchestration and Planning ---
+    let planInput: any;
+    let queryPlan: any;
+    // Simple Heuristic: Check for keywords indicating a complex KPI calculation
+    const isKPIQuestion = question.toLowerCase().includes('average') && question.toLowerCase().includes('time');
 
-    // Step 4: Query Plan Generation
-    const queryPlan = await queryPlanAgent(question, linkedSchema, subproblems);
+    if (isKPIQuestion) {
+        console.log('\n✨ [Orchestrator] Detected KPI question. Activating KPI flow...');
+        
+        // Agent 3a: KPI Metric Decomposition
+        planInput = await kpiMetricAgent(question, linkedSchema);
+
+        // Agent 4: Query Plan Generation (using KPI Decomposition)
+        queryPlan = await queryPlanAgent(question, linkedSchema, planInput);
+        
+    } else {
+        console.log('\n✨ [Orchestrator] Detected standard question. Activating Standard flow...');
+        
+        // Agent 3: Subproblem Identification (Standard path)
+        planInput = await subproblemAgent(question, linkedSchema);
+
+        // Agent 4: Query Plan Generation (Standard path)
+        queryPlan = await queryPlanAgent(question, linkedSchema, planInput);
+    }
+    // ------------------------------------------------
 
     // Step 5: SQL Generation
     let generatedSQL = await sqlGenerationAgent(question, queryPlan, linkedSchema);
@@ -331,9 +490,8 @@ async function sqlOfThought(question: string): Promise<void> {
       if (result.success) {
         console.log('✅ Query executed successfully!');
         console.log(`📊 Returned ${result.row_count} rows in ${result.execution_time_ms}ms`);
-        console.log('\n📋 Results (first 5 rows):');
-
-        // Convert BigInt to string for JSON serialization
+        
+        // Convert BigInt to string for console display
         const resultsToShow = result.result?.slice(0, 5).map(row => {
           const converted: any = {};
           for (const [key, value] of Object.entries(row)) {
@@ -342,7 +500,19 @@ async function sqlOfThought(question: string): Promise<void> {
           return converted;
         });
 
+        console.log('\n📋 Results (first 5 rows):');
         console.log(JSON.stringify(resultsToShow, null, 2));
+        
+        // === NEW STEP: VISUALIZATION (Agent 7) ===
+        const visualizationResult = await visualizeResults(question, result.result || []);
+
+        if (visualizationResult) {
+            console.log('\n🖼️  Visualization Summary:');
+            console.log(`- Plot Description: ${visualizationResult.plot_description}`);
+            console.log(`- **File Saved To:** ${visualizationResult.plot_file_path}`);
+        }
+        // =========================================
+
         success = true;
       } else {
         console.log('❌ Query failed:', result.error);
@@ -367,17 +537,21 @@ async function sqlOfThought(question: string): Promise<void> {
     console.error('\n❌ Pipeline error:', error);
   }
 }
+// ===================================
 
 // Demo queries
 const DEMO_QUERIES = [
-  // Simple: Single table filter
+  // 0: Simple: Single table filter
   'List the names and contact emails of all suppliers with a reliability score above 90.',
   
-  // Medium: Two-table join and aggregation
+  // 1: Medium: Two-table join and aggregation
   'What is the total quantity in stock for components with the Type "Battery", grouped by their WarehouseLocation?',
   
-  // Complex: Multi-table join, calculation, and filtering
+  // 2: Complex: Multi-table join, calculation, and filtering
   'Show me the average unit cost of all components ordered in Purchase Orders that were ultimately marked as "Delayed", excluding those manufactured in China.',
+
+  // 3: NEW KPI Query to test the new agent
+  'What is the average order to deliver time per warehouse across all battery components?',
 ];
 
 // Run demo
