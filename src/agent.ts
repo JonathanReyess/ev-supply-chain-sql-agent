@@ -142,6 +142,14 @@ async function sqlGenerationAgent(question: string, queryPlan: any, linkedSchema
 
   const prompt = `You are an expert SQL query generator. Given a query plan, generate the exact SQL query.
 
+CRITICAL RULE: For ALL string comparisons in WHERE clauses, you MUST use LOWER() on BOTH sides.
+Example: WHERE LOWER(type) = LOWER('battery')  NOT  WHERE type = 'battery'
+
+## Guidelines
+
+- Use exact names: Column and table names must match the schema exactly (case-sensitive)
+- ALWAYS wrap string values in WHERE clauses with LOWER() for case-insensitive matching
+
 Question: "${question}"
 
 Query Plan:

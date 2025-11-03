@@ -1,5 +1,6 @@
 import os
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Tuple, Dict, Any
 import sqlite3
@@ -18,6 +19,15 @@ except Exception:
 from . import llm_router
 
 app = FastAPI(title="Docking Agent API")
+
+# Add CORS middleware to allow frontend requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class QARequest(BaseModel):
     question: str

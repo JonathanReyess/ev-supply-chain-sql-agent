@@ -80,7 +80,9 @@ Return only valid JSON."""
 
 def llm_route(question: str) -> Tuple[str, Dict[str, Any], float]:
     if not USE_LLM:
+        print(f"[DEBUG] LLM Router DISABLED. USE_LLM={USE_LLM}, env var={os.getenv('USE_LLM_ROUTER')}")
         return "disabled", {}, 0.0
+    print(f"[DEBUG] LLM Router ENABLED. Provider={PROVIDER}, Model={MODEL}")
     t0 = time.time()
     payload = USER_TMPL.format(q=question, schema=json.dumps(SCHEMA_CARD))
     try:

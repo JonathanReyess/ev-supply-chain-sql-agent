@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EV Supply Chain Agent</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>EV Supply Chain</h1>
+                <button class="new-chat-btn" id="newChatBtn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    New chat
+                </button>
+            </div>
+            
+            <div class="agent-selector">
+                <label for="agentSelect">Select Agent:</label>
+                <select id="agentSelect">
+                    <option value="sql-of-thought">SQL-of-Thought Agent</option>
+                    <option value="docking-agent">Docking Agent</option>
+                </select>
+            </div>
+
+            <div class="chat-history" id="chatHistory">
+                <!-- Chat history items will be added here -->
+            </div>
+
+            <div class="sidebar-footer">
+                <div class="agent-info">
+                    <div class="agent-status" id="agentStatus">
+                        <span class="status-dot"></span>
+                        <span id="currentAgent">SQL-of-Thought</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="main-content">
+            <div class="chat-container" id="chatContainer">
+                <div class="welcome-screen" id="welcomeScreen">
+                    <h2>Welcome to EV Supply Chain Agent</h2>
+                    <p>Select an agent and start asking questions about your supply chain data.</p>
+                    
+                    <div class="example-prompts">
+                        <h3>Example questions for SQL-of-Thought Agent:</h3>
+                        <div class="prompt-card" data-prompt="List the names and contact emails of all suppliers with a reliability score above 90.">
+                            <h4>📊 Supplier Analysis</h4>
+                            <p>List the names and contact emails of all suppliers with a reliability score above 90.</p>
+                        </div>
+                        <div class="prompt-card" data-prompt="What is the total quantity in stock for components with the Type 'Battery', grouped by their WarehouseLocation?">
+                            <h4>📦 Inventory Check</h4>
+                            <p>What is the total quantity in stock for components with the Type 'Battery', grouped by their WarehouseLocation?</p>
+                        </div>
+                        <div class="prompt-card" data-prompt="Show me the average unit cost of all components ordered in Purchase Orders that were ultimately marked as 'Delayed', excluding those manufactured in China.">
+                            <h4>💰 Cost Analysis</h4>
+                            <p>Show me the average unit cost of all components ordered in Purchase Orders that were ultimately marked as 'Delayed'.</p>
+                        </div>
+
+                        <h3>Example questions for Docking Agent:</h3>
+                        <div class="prompt-card" data-prompt="when is the earliest ETA for part C00015 at Fremont CA">
+                            <h4>🚚 ETA Lookup</h4>
+                            <p>When is the earliest ETA for part C00015 at Fremont CA?</p>
+                        </div>
+                        <div class="prompt-card" data-prompt="what is the door schedule for Fremont CA">
+                            <h4>🚪 Door Schedule</h4>
+                            <p>What is the door schedule for Fremont CA?</p>
+                        </div>
+                        <div class="prompt-card" data-prompt="why was dock FRE-D04 reassigned">
+                            <h4>🔄 Reassignment Info</h4>
+                            <p>Why was dock FRE-D04 reassigned?</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="messages" id="messages">
+                    <!-- Messages will be added here -->
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-container">
+                <div class="input-wrapper">
+                    <textarea 
+                        id="messageInput" 
+                        placeholder="Send a message..." 
+                        rows="1"
+                    ></textarea>
+                    <button id="sendBtn" class="send-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

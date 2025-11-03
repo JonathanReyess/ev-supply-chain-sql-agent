@@ -8,6 +8,8 @@
     "build": "npm run clean && tsc && npm run copy-assets",
     "start": "node dist/agent.js",
     "dev": "npx ts-node --esm src/agent.ts",
+    "api": "npx tsx src/api.ts",
+    "frontend": "npx http-server frontend -p 3000 -c-1 --cors",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
@@ -17,6 +19,7 @@
     "dotenv": "^16.4.7",
     "duckdb": "^1.1.3",
     "express": "^5.1.0",
+    "http-server": "^14.1.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {
