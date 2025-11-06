@@ -777,15 +777,21 @@ async function generateConversationSummary(
   const allTables = new Set<string>();
   const keyMetrics: Array<{ question: string; result: string }> = [];
   
-  turns.forEach(turn => {
+  console.log(`  [DEBUG] Processing ${turns.length} turns for summary`);
+  
+  turns.forEach((turn, idx) => {
+    console.log(`  [DEBUG] Turn ${idx + 1}: tables=${turn.tables}, keyMetric=${turn.keyMetric}, rowCount=${turn.rowCount}`);
+    
     if (turn.tables && Array.isArray(turn.tables)) {
       turn.tables.forEach((t: string) => allTables.add(t));
     }
-    if (turn.question && turn.rowCount !== undefined) {
-      const metric = turn.keyMetric || `${turn.rowCount} rows`;
+    if (turn.question) {
+      const metric = turn.keyMetric || `${turn.rowCount || 0} rows`;
       keyMetrics.push({ question: turn.question, result: metric });
     }
   });
+  
+  console.log(`  [DEBUG] Extracted tables: [${Array.from(allTables).join(', ')}]`);
 
   // Build prompt for summary generation
   const previousSummary = existingSummary ? `\nPrevious Summary:\n${existingSummary.summaryText}\n` : '';
@@ -813,17 +819,60 @@ ${turnsContext}
 
 Return ONLY the summary text, no additional commentary or formatting.`;
 
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: {
-      temperature: 0.3, // Lower temperature for factual summarization
-      maxOutputTokens: 300, // Enforce token limit (roughly 200 words)
-    },
-  });
+  let summaryText = '';
+  let tokenCount = 0;
 
-  const summaryText = response.text?.trim() || '';
-  const tokenCount = response.usageMetadata?.totalTokenCount || 0;
+  try {
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents: prompt,
+      config: {
+        temperature: 0.3,
+        maxOutputTokens: 300,
+      },
+    });
+
+    tokenCount = response.usageMetadata?.totalTokenCount || 0;
+    
+    console.log(`  [DEBUG] Response.text exists:`, !!response.text);
+    console.log(`  [DEBUG] Response.candidates exists:`, !!response.candidates);
+    
+    // Try to extract text - handle different response formats
+    if (response.text) {
+      summaryText = response.text.trim();
+      console.log(`  [DEBUG] Got text from response.text`);
+    } else if (response.candidates && response.candidates[0]?.content?.parts) {
+      summaryText = response.candidates[0].content.parts
+        .map((p: any) => p.text || '')
+        .join('')
+        .trim();
+      console.log(`  [DEBUG] Got text from candidates.parts`);
+    }
+
+    // Fallback if LLM returns empty text
+    if (!summaryText) {
+      console.error('  ⚠️  WARNING: Summary text is empty!');
+      console.error('  [DEBUG] Response keys:', Object.keys(response));
+      console.error('  [DEBUG] Finish reason:', response.candidates?.[0]?.finishReason);
+      
+      // Create a simple fallback summary from the metadata
+      const tablesList = Array.from(allTables).join(', ') || 'unknown';
+      const metricsText = keyMetrics.map(m => `${m.question} (${m.result})`).join('; ');
+      summaryText = `Previous queries on ${tablesList}: ${metricsText}`;
+      console.log(`  [DEBUG] Using fallback summary: "${summaryText}"`);
+    }
+    
+    console.log(`  ✓ Generated summary (${summaryText.length} chars): "${summaryText.substring(0, 100)}${summaryText.length > 100 ? '...' : ''}"`);
+    console.log(`  ✓ Summary tokens: ${tokenCount}, Word count: ${summaryText.split(' ').length}`);
+  } catch (error: any) {
+    console.error('  ❌ Summary generation failed:', error.message);
+    // Create fallback summary
+    const tablesList = Array.from(allTables).join(', ') || 'unknown tables';
+    const metricsText = keyMetrics.map(m => `"${m.question}" → ${m.result}`).join(', ');
+    summaryText = `Queried ${tablesList}. ${metricsText}`;
+    console.log(`  ℹ️  Using fallback summary: "${summaryText}"`);
+  }
+
 
   return {
     summaryText,
@@ -847,24 +896,38 @@ async function sqlOfThought(question: string, conversationHistory: any[] = []): 
   const tokenUsagePerAgent: any[] = [];
   
   try {
-    // Prepare context with sliding-window strategy
+    // Prepare context with sliding-window strategy (window size = 3)
+    // Summary triggers on Q4 (when history has 3 items: Q1, Q2, Q3)
     let contextForAgents = conversationHistory;
-    if (conversationHistory.length > 3) {
-      // Generate or update summary for turns 0 to -3
-      const oldTurns = conversationHistory.slice(0, -3);
-      conversationSummaryStorage = await generateConversationSummary(oldTurns, conversationSummaryStorage || undefined);
+    console.log(`\n[DEBUG] History length: ${conversationHistory.length}`);
+    
+    if (conversationHistory.length >= 3) {
+      // Summarize old turns, keep last 2 in full window
+      // When history = 3 (asking Q4): summarize Q1, keep Q2,Q3 + current
+      // When history = 4 (asking Q5): summarize Q1-Q2, keep Q3,Q4 + current
+      const oldTurns = conversationHistory.slice(0, -2);
       
-      // Use summary + last 3 turns
-      contextForAgents = [
-        { 
-          isSummary: true, 
-          summaryText: conversationSummaryStorage.summaryText,
-          tables: conversationSummaryStorage.keyMetadata.tablesUsed
-        },
-        ...conversationHistory.slice(-3)
-      ];
+      console.log(`[DEBUG] oldTurns.length: ${oldTurns.length}`);
       
-      console.log(`\n📚 [Context Management] Using summary (${conversationSummaryStorage.tokenCount} tokens) + last 3 turns`);
+      if (oldTurns.length > 0) {
+        console.log(`\n📝 Generating summary for ${oldTurns.length} turn(s), keeping last 2 in full context`);
+        
+        conversationSummaryStorage = await generateConversationSummary(oldTurns, conversationSummaryStorage || undefined);
+        
+        console.log(`[DEBUG] Summary storage after generation:`, conversationSummaryStorage ? 'EXISTS' : 'NULL');
+        
+        // Use summary + last 2 turns (will become 3 with current question)
+        contextForAgents = [
+          { 
+            isSummary: true, 
+            summaryText: conversationSummaryStorage.summaryText,
+            tables: conversationSummaryStorage.keyMetadata.tablesUsed
+          },
+          ...conversationHistory.slice(-2)
+        ];
+        
+        console.log(`\n📚 [Context Management] Using summary (${conversationSummaryStorage.tokenCount} tokens) + last 2 turns`);
+      }
     }
     
     // Get database schema
@@ -967,7 +1030,7 @@ async function sqlOfThought(question: string, conversationHistory: any[] = []): 
 
         // Include summary info if it was used
         let summaryInfo = null;
-        if (conversationHistory.length > 3 && conversationSummaryStorage) {
+        if (conversationHistory.length >= 3 && conversationSummaryStorage) {
           summaryInfo = {
             summaryText: conversationSummaryStorage.summaryText,
             tokenCount: conversationSummaryStorage.tokenCount,

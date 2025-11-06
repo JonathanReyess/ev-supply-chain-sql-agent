@@ -135,9 +135,15 @@ async function sendMessage() {
             historyEntry.tables = response.metadata.tables || [];
             historyEntry.rowCount = response.metadata.rowCount || 0;
             historyEntry.keyMetric = response.metadata.keyMetric || '';
+            console.log('[DEBUG] Saved history with metadata:', {
+                question: historyEntry.question.substring(0, 50),
+                tables: historyEntry.tables,
+                keyMetric: historyEntry.keyMetric
+            });
         }
         
         conversationHistory.push(historyEntry);
+        console.log('[DEBUG] Conversation history length:', conversationHistory.length);
     } catch (error) {
         // Remove loading message
         removeMessage(loadingId);
@@ -156,9 +162,18 @@ async function queryAgent(agent, question) {
     // Prepare conversation history (only relevant parts) for SQL-of-Thought
     const historyForAgent = conversationHistory
         .filter(turn => turn.agent === agent)
-        .map(turn => ({ question: turn.question, sql: turn.sql }));
+        .map(turn => ({ 
+            question: turn.question, 
+            sql: turn.sql,
+            tables: turn.tables,
+            rowCount: turn.rowCount,
+            keyMetric: turn.keyMetric
+        }));
 
     if (agent === 'sql-of-thought') {
+        console.log('[DEBUG] Sending history to API:', historyForAgent.length, 'turns');
+        console.log('[DEBUG] First turn metadata:', historyForAgent[0]);
+        
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: {
@@ -217,15 +232,21 @@ function formatResponse(response, agent) {
         // Display conversation summary (if active)
         if (response.summary) {
             const summary = response.summary;
+            console.log('[DEBUG] Summary object:', JSON.stringify(summary).substring(0, 200));
+            
             html += '<div class="context-summary">';
             html += '<strong>📚 Context Summary Active</strong>';
             html += '<div class="summary-info">';
-            html += `<span>Compressing ${summary.turnsCount} previous turns into ${summary.tokenCount} tokens</span>`;
-            html += `<span>Tables referenced: ${summary.tablesUsed.join(', ') || 'none'}</span>`;
+            html += `<span>Compressing ${summary.turnsCount || 0} previous turns into ${summary.tokenCount || 0} tokens</span>`;
+            html += `<span>Tables referenced: ${(summary.tablesUsed || []).join(', ') || 'none'}</span>`;
             html += '</div>';
-            html += '<details class="summary-details">';
+            html += '<details class="summary-details" open>';
             html += '<summary>View Summary Text</summary>';
-            html += `<div class="summary-text">${escapeHtml(summary.summaryText)}</div>`;
+            
+            const summaryText = summary.summaryText || '[No summary text generated]';
+            console.log('[DEBUG] Summary text:', summaryText);
+            
+            html += `<div class="summary-text">${escapeHtml(summaryText)}</div>`;
             html += '</details>';
             html += '</div>';
         }

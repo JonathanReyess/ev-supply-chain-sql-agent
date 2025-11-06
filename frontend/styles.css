@@ -506,15 +506,17 @@ body {
 
 .summary-text {
     margin-top: 8px;
-    padding: 10px;
+    padding: 12px;
     background: #ffffff;
     border: 1px solid #bfdbfe;
     border-radius: 6px;
-    color: #1e3a8a;
+    color: #1e293b;
     line-height: 1.6;
-    font-size: 13px;
+    font-size: 14px;
+    font-weight: 400;
     white-space: pre-wrap;
     word-wrap: break-word;
+    min-height: 40px;
 }
 
 /* Token Usage Styling */
