@@ -457,6 +457,66 @@ body {
     background: var(--text-secondary);
 }
 
+/* Context Summary Styling */
+.context-summary {
+    margin: 16px 0;
+    padding: 12px;
+    background: #f0f9ff;
+    border-radius: 8px;
+    border-left: 3px solid #3b82f6;
+}
+
+.context-summary strong {
+    display: block;
+    margin-bottom: 8px;
+    color: #1e40af;
+    font-size: 14px;
+}
+
+.summary-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: #1e3a8a;
+    margin-bottom: 8px;
+}
+
+.summary-info span {
+    display: flex;
+    align-items: center;
+}
+
+.summary-details {
+    margin-top: 8px;
+    font-size: 13px;
+}
+
+.summary-details summary {
+    cursor: pointer;
+    color: #3b82f6;
+    font-weight: 500;
+    padding: 6px 0;
+    user-select: none;
+}
+
+.summary-details summary:hover {
+    color: #2563eb;
+}
+
+.summary-text {
+    margin-top: 8px;
+    padding: 10px;
+    background: #ffffff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    color: #1e3a8a;
+    line-height: 1.6;
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
 /* Token Usage Styling */
 .token-usage {
     margin: 16px 0;

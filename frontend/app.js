@@ -214,6 +214,22 @@ function formatResponse(response, agent) {
             html += '<p>Query executed successfully but returned no results.</p>';
         }
         
+        // Display conversation summary (if active)
+        if (response.summary) {
+            const summary = response.summary;
+            html += '<div class="context-summary">';
+            html += '<strong>📚 Context Summary Active</strong>';
+            html += '<div class="summary-info">';
+            html += `<span>Compressing ${summary.turnsCount} previous turns into ${summary.tokenCount} tokens</span>`;
+            html += `<span>Tables referenced: ${summary.tablesUsed.join(', ') || 'none'}</span>`;
+            html += '</div>';
+            html += '<details class="summary-details">';
+            html += '<summary>View Summary Text</summary>';
+            html += `<div class="summary-text">${escapeHtml(summary.summaryText)}</div>`;
+            html += '</details>';
+            html += '</div>';
+        }
+
         // Display token usage
         if (response.tokenUsage) {
             const tokenUsage = response.tokenUsage;

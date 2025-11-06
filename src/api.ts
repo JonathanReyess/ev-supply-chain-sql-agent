@@ -960,6 +960,17 @@ async function sqlOfThought(question: string, conversationHistory: any[] = []): 
           }
         }
 
+        // Include summary info if it was used
+        let summaryInfo = null;
+        if (conversationHistory.length > 3 && conversationSummaryStorage) {
+          summaryInfo = {
+            summaryText: conversationSummaryStorage.summaryText,
+            tokenCount: conversationSummaryStorage.tokenCount,
+            turnsCount: conversationSummaryStorage.turnRange.end,
+            tablesUsed: conversationSummaryStorage.keyMetadata.tablesUsed
+          };
+        }
+
         return {
           success: true,
           sql: generatedSQL,
@@ -977,7 +988,9 @@ async function sqlOfThought(question: string, conversationHistory: any[] = []): 
             tables: linkedSchema.tables || [],
             rowCount: result.row_count,
             keyMetric: keyMetric
-          }
+          },
+          // Summary information (if active)
+          summary: summaryInfo
         };
       } else {
         if (attempt < MAX_CORRECTION_ATTEMPTS) {
