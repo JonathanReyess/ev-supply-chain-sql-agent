@@ -8,7 +8,6 @@ import * as dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync } from 'fs';
-// NOTE: Assuming these tool imports are correctly set up in your environment
 import { getCompleteSchema, formatSchemaForPrompt } from './tools/schema-tool.js';
 import { executeSQL } from './tools/sql-executor-tool.js';
 import { generatePlot, PlottingInput, PlottingInputJSONSchema } from './tools/plotting-tool.js';
@@ -30,7 +29,6 @@ const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const TEMPERATURE = parseFloat(process.env.TEMPERATURE || '0.7');
 
 // Load resources
-// NOTE: Ensure the path to your error-taxonomy.json is correct relative to the script
 const errorTaxonomy = JSON.parse(readFileSync(ERROR_TAXONOMY_PATH, 'utf-8'));
 
 /**
@@ -45,29 +43,6 @@ function convertBigIntsToStrings(data: any[]): any[] {
     return converted;
   });
 }
-
-/**
- * Helper function to sanitize the LLM response text, ensuring it is clean JSON.
- * Removes common markdown code fences (```json, ```) if they exist.
- */
-function cleanJsonString(text: string): string {
-    let cleanedText = text.trim();
-    
-    // Check for and remove markdown code block wrapping
-    if (cleanedText.startsWith('```')) {
-        // Strip the opening fence (e.g., ```json\n or ```\n)
-        cleanedText = cleanedText.replace(/^```(json\s*|yaml\s*|)\n/i, '').trim();
-        
-        // Strip the closing fence (e.g., \n```)
-        if (cleanedText.endsWith('```')) {
-            cleanedText = cleanedText.substring(0, cleanedText.length - 3).trim();
-        }
-    }
-    
-    // If the text is empty after cleaning, return a default empty JSON object string
-    return cleanedText.length > 0 ? cleanedText : '{}';
-}
-
 
 // ----------------------------------------------------------------------
 // AGENT STATE MANAGEMENT
@@ -119,16 +94,15 @@ async function toolLoadSchema(state: AgentState): Promise<string> {
 }
 
 /**
- * Tool 2: Schema Linking (FIXED for robustness)
+ * Tool 2: Schema Linking
  */
 async function toolSchemaLinking(state: AgentState): Promise<string> {
-  console.log('\n🔗 [Tool: Schema Linking] Analyzing question for relevant schema elements...');
+  console.log('\n📊 [Tool: Schema Linking] Analyzing question for relevant schema elements...');
   
   if (!state.schema) {
     return 'Error: Schema not loaded. Please load schema first.';
   }
 
-  // NOTE: Assuming your prompts/schema-linking.md path is correct
   const prompt = `${readFileSync(join(__dirname, 'prompts/schema-linking.md'), 'utf-8')}
 
 ## Database Schema
@@ -150,18 +124,17 @@ Analyze the question and identify the relevant tables, columns, and relationship
     },
   });
 
-  const jsonText = cleanJsonString(response.text || '{}'); // Apply fix
-  const result = JSON.parse(jsonText);
+  const result = JSON.parse(response.text || '{}');
   state.linkedSchema = result;
   console.log('  ✓ Identified tables:', result.tables);
   return `Schema linking complete. Identified ${result.tables.length} relevant tables: ${result.tables.join(', ')}. Reasoning: ${result.reasoning}`;
 }
 
 /**
- * Tool 3: KPI Decomposition (FIXED for robustness)
+ * Tool 3: KPI Decomposition
  */
 async function toolKPIDecomposition(state: AgentState): Promise<string> {
-  console.log('\n📊 [Tool: KPI Decomposition] Breaking down KPI metrics...');
+  console.log('\n📈 [Tool: KPI Decomposition] Breaking down KPI metrics...');
   
   if (!state.linkedSchema) {
     return 'Error: Schema linking not performed. Please link schema first.';
@@ -189,15 +162,14 @@ Analyze the question and break down the KPI into its core components. Return ONL
     },
   });
 
-  const jsonText = cleanJsonString(response.text || '{}'); // Apply fix
-  const result = JSON.parse(jsonText);
+  const result = JSON.parse(response.text || '{}');
   state.kpiDecomposition = result;
   console.log('  ✓ Decomposed KPI:', result.kpi_name);
   return `KPI decomposed: ${result.kpi_name}. Primary calculation: ${result.primary_calculation?.operation} on ${result.primary_calculation?.target}`;
 }
 
 /**
- * Tool 4: Subproblem Identification (FIXED)
+ * Tool 4: Subproblem Identification
  */
 async function toolSubproblemIdentification(state: AgentState): Promise<string> {
   console.log('\n🧩 [Tool: Subproblem Identification] Breaking down query...');
@@ -206,15 +178,14 @@ async function toolSubproblemIdentification(state: AgentState): Promise<string> 
     return 'Error: Schema linking not performed. Please link schema first.';
   }
 
-  // 👇 FIX: Removed the bloated 'Relevant columns' line from the prompt.
   const prompt = `You are a SQL query decomposition expert. Given a natural language question, break it down into SQL clause-level subproblems.
 
 Question: "${state.question}"
 
 Relevant tables: ${state.linkedSchema.tables.join(', ')}
+Relevant columns: ${JSON.stringify(state.linkedSchema.columns)}
 
 Identify which SQL clauses are needed and what each should accomplish. Return the JSON object describing the clauses.`;
-  // 👆 END FIX
 
   const subproblemSchema = {
     type: "OBJECT",
@@ -248,25 +219,15 @@ Identify which SQL clauses are needed and what each should accomplish. Return th
     },
   });
 
-  // Use the robust cleanJsonString function
-  const jsonText = cleanJsonString(response.text || '{}');
-  
-  try {
-    const result = JSON.parse(jsonText); 
-    state.subproblems = result;
-    const identifiedClauses = Object.keys(result.clauses || {});
-    console.log('  ✓ Identified clauses:', identifiedClauses);
-    return `Subproblems identified. Required SQL clauses: ${identifiedClauses.join(', ')}`;
-  } catch (e) {
-      console.error(`Failed to parse JSON for subproblem identification. Error: ${e}`);
-      console.error('Original (uncleaned) text:', response.text);
-      console.error('Cleaned text that failed:', jsonText);
-      return `Tool Error: Failed to parse LLM response into JSON. Error: ${e}`;
-  }
+  const result = JSON.parse(response.text || '{}');
+  state.subproblems = result;
+  const identifiedClauses = Object.keys(result.clauses || {});
+  console.log('  ✓ Identified clauses:', identifiedClauses);
+  return `Subproblems identified. Required SQL clauses: ${identifiedClauses.join(', ')}`;
 }
 
 /**
- * Tool 5: Query Planning (FIXED for robustness)
+ * Tool 5: Query Planning
  */
 async function toolQueryPlanning(state: AgentState): Promise<string> {
   console.log('\n🤔 [Tool: Query Planning] Generating execution plan...');
@@ -285,7 +246,6 @@ async function toolQueryPlanning(state: AgentState): Promise<string> {
     ? `## KPI Decomposition\n${JSON.stringify(planInput, null, 2)}`
     : `## Identified Clauses\n${JSON.stringify(planInput.clauses, null, 2)}`;
 
-  // NOTE: Assuming your prompts/query-planning.md path is correct
   const prompt = `${readFileSync(join(__dirname, 'prompts/query-planning.md'), 'utf-8')}
 
 ## Question
@@ -309,8 +269,7 @@ Create a detailed step-by-step query plan using Chain-of-Thought reasoning. Retu
     },
   });
 
-  const jsonText = cleanJsonString(response.text || '{}'); // Apply fix
-  const result = JSON.parse(jsonText);
+  const result = JSON.parse(response.text || '{}');
   state.queryPlan = result;
   console.log('  ✓ Generated plan with', result.steps?.length || 0, 'steps');
   return `Query plan created with ${result.steps?.length || 0} steps. Strategy: ${result.final_strategy}`;
@@ -320,7 +279,7 @@ Create a detailed step-by-step query plan using Chain-of-Thought reasoning. Retu
  * Tool 6: SQL Generation
  */
 async function toolSQLGeneration(state: AgentState): Promise<string> {
-  console.log('\n📝 [Tool: SQL Generation] Generating SQL query...');
+  console.log('\n⚡ [Tool: SQL Generation] Generating SQL query...');
   
   if (!state.queryPlan || !state.linkedSchema) {
     return 'Error: Query plan or schema not available.';
@@ -365,18 +324,17 @@ Generate the SQL query that implements this plan. Return ONLY the SQL query, no 
  * Tool 7: Execute SQL
  */
 async function toolExecuteSQL(state: AgentState): Promise<string> {
-  console.log('\n▶️ [Tool: Execute SQL] Running query...');
+  console.log('\n⚙️  [Tool: Execute SQL] Running query...');
   
   if (!state.currentSQL) {
     return 'Error: No SQL query to execute. Generate SQL first.';
   }
 
-  // NOTE: Assuming your executeSQL function works correctly
   const result = await executeSQL(state.currentSQL, DB_PATH);
   state.executionResult = result;
 
   if (result.success) {
-    console.log(` Query executed successfully! ${result.row_count} rows in ${result.execution_time_ms}ms`);
+    console.log(`✅ Query executed successfully! ${result.row_count} rows in ${result.execution_time_ms}ms`);
     
     const resultsToShow = result.result?.slice(0, 3).map(row => {
       const converted: any = {};
@@ -388,16 +346,16 @@ async function toolExecuteSQL(state: AgentState): Promise<string> {
 
     return `Query executed successfully. Returned ${result.row_count} rows. Sample: ${JSON.stringify(resultsToShow)}`;
   } else {
-    console.log(' Query failed:', result.error);
+    console.log('❌ Query failed:', result.error);
     return `Query execution failed: ${result.error}`;
   }
 }
 
 /**
- * Tool 8: Error Correction (Correction Plan step FIXED for robustness)
+ * Tool 8: Error Correction
  */
 async function toolErrorCorrection(state: AgentState): Promise<string> {
-  console.log('\n🔧 [Tool: Error Correction] Analyzing and fixing error...');
+  console.log('\n🔍 [Tool: Error Correction] Analyzing and fixing error...');
   
   if (!state.executionResult || state.executionResult.success) {
     return 'Error: No failed query to correct.';
@@ -408,7 +366,6 @@ async function toolErrorCorrection(state: AgentState): Promise<string> {
   }
 
   // Generate correction plan
-  // NOTE: Assuming your prompts/error-correction.md path is correct
   const correctionPrompt = `${readFileSync(join(__dirname, 'prompts/error-correction.md'), 'utf-8')}
 
 ## Error Taxonomy
@@ -439,8 +396,7 @@ Analyze this error using the taxonomy and provide a structured correction plan. 
     },
   });
 
-  const correctionPlanJsonText = cleanJsonString(correctionPlanResponse.text || '{}'); // Apply fix
-  const correctionPlan = JSON.parse(correctionPlanJsonText);
+  const correctionPlan = JSON.parse(correctionPlanResponse.text || '{}');
   console.log('  ✓ Error categories:', correctionPlan.error_categories);
 
   // Generate corrected SQL
@@ -485,7 +441,7 @@ Generate the corrected SQL query that addresses all issues identified in the cor
  * Tool 9: Visualize Results
  */
 async function toolVisualizeResults(state: AgentState): Promise<string> {
-  console.log('\n📈 [Tool: Visualize Results] Generating visualization...');
+  console.log('\n🎨 [Tool: Visualize Results] Generating visualization...');
   
   if (!state.executionResult || !state.executionResult.success) {
     return 'Error: No successful query results to visualize.';
@@ -520,19 +476,16 @@ NOTE: Ensure your response is a valid JSON object matching the 'generate_plot' i
       },
     });
 
-    const plotParamsJsonText = cleanJsonString(response.text || '{}'); // Apply fix
-    const plotParams: PlottingInput = JSON.parse(plotParamsJsonText);
-    // NOTE: query_results is added here, outside the LLM call
+    const plotParams: PlottingInput = JSON.parse(response.text || '{}');
     plotParams.query_results = results;
 
-    // NOTE: Assuming your generatePlot function works correctly
     const plotOutput = await generatePlot(plotParams);
     state.visualizationResult = plotOutput;
 
     console.log(`  ✓ Generated plot: ${plotOutput.plot_description}`);
     return `Visualization created: ${plotOutput.plot_description}. File saved to: ${plotOutput.plot_file_path}`;
   } catch (e) {
-    console.error('   Failed to generate visualization:', e);
+    console.error('  ❌ Failed to generate visualization:', e);
     return `Visualization failed: ${e}`;
   }
 }
@@ -566,38 +519,6 @@ const TOOL_DESCRIPTIONS = {
 };
 
 // ----------------------------------------------------------------------
-// DEBUG: STATE LOGGING HELPER (Optional - kept for context)
-// ----------------------------------------------------------------------
-
-/**
- * Helper function to log a summary of the current agent state.
- */
-function logStateSummary(state: AgentState, phase: 'BEFORE ACTION' | 'AFTER TOOL EXECUTION', iteration: number, toolName?: string) {
-  const visualState = {
-    'Phase': phase,
-    'Iteration': iteration,
-    'Question': state.question.substring(0, 50) + '...',
-    'Schema Loaded': !!state.schema,
-    'Schema Linked': !!state.linkedSchema,
-    'KPI Decomposed': !!state.kpiDecomposition,
-    'Subproblems': !!state.subproblems,
-    'Query Plan': !!state.queryPlan,
-    'Current SQL': state.currentSQL ? state.currentSQL.substring(0, 30) + '...' : 'N/A',
-    'SQL Success': state.executionResult?.success === true ? 'Yes' : (state.executionResult?.success === false ? 'No' : 'N/A'),
-    'Correction Attempts': `${state.correctionAttempts}/${MAX_CORRECTION_ATTEMPTS}`,
-    'Final Answer': !!state.finalAnswer,
-    'Completed': state.completed,
-    'Last Tool': toolName || 'Orchestrator Decision'
-  };
-
-  console.log(`\n${'='.repeat(20)} ${phase} - State Snapshot ${'='.repeat(20)}`);
-  for (const [key, value] of Object.entries(visualState)) {
-    console.log(`  ${key.padEnd(25)}: ${value}`);
-  }
-  console.log('='.repeat(69));
-}
-
-// ----------------------------------------------------------------------
 // LOOPING ORCHESTRATOR AGENT
 // ----------------------------------------------------------------------
 
@@ -606,14 +527,14 @@ function logStateSummary(state: AgentState, phase: 'BEFORE ACTION' | 'AFTER TOOL
  */
 async function orchestratorAgent(question: string): Promise<void> {
   console.log('\n' + '='.repeat(80));
-  console.log(' SQL-of-Thought: Looping Orchestrator Agent');
+  console.log('🚀 SQL-of-Thought: Looping Orchestrator Agent');
   console.log('='.repeat(80));
   console.log('\n📝 Question:', question);
 
   const state = createInitialState(question);
   let iteration = 0;
 
-  // System prompt for the orchestrator (defines the agent's identity and rules)
+  // System prompt for the orchestrator
   const systemPrompt = `You are an intelligent data analyst orchestrator agent. Your goal is to answer the user's question about data in a database.
 
 You have access to these tools:
@@ -648,25 +569,18 @@ Choose your next action. Respond with either:
 
   while (iteration < MAX_AGENT_ITERATIONS && !state.completed) {
     iteration++;
-    
     console.log(`\n${'─'.repeat(80)}`);
     console.log(`🔄 Iteration ${iteration}/${MAX_AGENT_ITERATIONS}`);
     console.log(`${'─'.repeat(80)}`);
 
-    // Build conversation history (short-term memory)
+    // Build conversation history
     const conversationContext = state.conversationHistory.length > 0
       ? `\n\nPrevious actions:\n${state.conversationHistory.map(h => `${h.role}: ${h.content}`).join('\n')}`
       : '';
 
     const promptForAgent = systemPrompt + conversationContext + `\n\nWhat is your next action?`;
 
-    // 🐛 DEBUG BLOCK: Print the full context being sent to the LLM
-    console.log('\n\n' + '<<<'+'='.repeat(30) + ' AGENT PROMPT CONTEXT ' + '='.repeat(30) + '>>>');
-    console.log(promptForAgent);
-    console.log('<<<' + '='.repeat(78) + '>>>\n');
-    // 🐛 END DEBUG BLOCK
-
-    // Call the orchestrator agent (the core LLM decision)
+    // Call the orchestrator agent
     const response = await ai.models.generateContent({
       model: MODEL,
       contents: promptForAgent,
@@ -690,7 +604,7 @@ Choose your next action. Respond with either:
       console.log(finalAnswer);
       
       if (state.visualizationResult) {
-        console.log(`\n Visualization: ${state.visualizationResult.plot_file_path}`);
+        console.log(`\n📊 Visualization: ${state.visualizationResult.plot_file_path}`);
       }
       
     } else if (agentDecision.startsWith('TOOL:')) {
@@ -711,23 +625,22 @@ Choose your next action. Respond with either:
             role: 'system',
             content: `Tool result: ${toolResult}`,
           });
-
         } catch (error) {
-          console.error(`\n Tool Error: ${error}`);
+          console.error(`\n❌ Tool Error: ${error}`);
           state.conversationHistory.push({
             role: 'system',
             content: `Tool ${toolName} failed: ${error}`,
           });
         }
       } else {
-        console.log(`\n⚠  Unknown tool: ${toolName}`);
+        console.log(`\n⚠️  Unknown tool: ${toolName}`);
         state.conversationHistory.push({
           role: 'system',
           content: `Unknown tool: ${toolName}. Available tools: ${Object.keys(TOOLS).join(', ')}`,
         });
       }
     } else {
-      console.log('\n⚠  Agent provided invalid response format. Expected TOOL: or FINAL_ANSWER:');
+      console.log('\n⚠️  Agent provided invalid response format. Expected TOOL: or FINAL_ANSWER:');
       state.conversationHistory.push({
         role: 'system',
         content: 'Invalid response format. Please respond with either "TOOL: [tool_name]" or "FINAL_ANSWER: [answer]"',
@@ -736,7 +649,7 @@ Choose your next action. Respond with either:
 
     // Safety check: if we have results and haven't answered, prompt for answer
     if (state.executionResult?.success && !state.completed && iteration > 10) {
-      console.log('\n⚠  Agent has results but hasn\'t provided answer. Prompting...');
+      console.log('\n⚠️  Agent has results but hasn\'t provided answer. Prompting...');
       state.conversationHistory.push({
         role: 'system',
         content: 'You have successfully executed the query and have results. Please provide the FINAL_ANSWER now.',
@@ -745,11 +658,11 @@ Choose your next action. Respond with either:
   }
 
   if (!state.completed) {
-    console.log('\n⚠  Maximum iterations reached without completing the task.');
+    console.log('\n⚠️  Maximum iterations reached without completing the task.');
   }
 
   console.log('\n' + '='.repeat(80));
-  console.log(state.completed ? ' Orchestration completed!' : '⚠  Orchestration incomplete');
+  console.log(state.completed ? '✅ Orchestration completed!' : '⚠️  Orchestration incomplete');
   console.log('='.repeat(80) + '\n');
 }
 
@@ -764,9 +677,7 @@ const DEMO_QUERIES = [
   'What is the average order to deliver time per warehouse across all battery components?',
 ];
 
-// Allows running different queries using "node your_file.js [index]"
 const questionIndex = process.argv[2] ? parseInt(process.argv[2]) : 0;
 const question = DEMO_QUERIES[questionIndex] || DEMO_QUERIES[0];
 
-// Execute the main function
 orchestratorAgent(question).catch(console.error);
