@@ -1,10 +1,12 @@
 import os
+import json
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Tuple, Dict, Any
 import sqlite3
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # Load env from local .env before importing router (so it sees flags like USE_LLM_ROUTER)
 try:
@@ -29,22 +31,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Ensure logs directory exists
+LOGS_DIR = Path(__file__).parent.parent / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
+
+def log_token_usage(intent: str, model: str, provider: str, token_data: dict, question: str, conversation_id: str = "default"):
+    """Log token usage to JSONL file"""
+    timestamp = datetime.utcnow().isoformat()
+    log_entry = {
+        "timestamp": timestamp,
+        "conversationId": conversation_id,
+        "intent": intent,
+        "model": model,
+        "provider": provider,
+        "question": question[:100],  # Truncate long questions
+        **token_data
+    }
+    
+    log_file = LOGS_DIR / f"token-usage-docking-agent-{datetime.utcnow().date().isoformat()}.jsonl"
+    try:
+        with open(log_file, "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
+    except Exception as e:
+        print(f"Failed to write log: {e}")
+
 class QARequest(BaseModel):
     question: str
 
 def parse_question(question: str) -> Tuple[str, Dict[str, Any], float, str]:
-    """Parse a natural-language question into an intent and slots.
+    """Parse a natural-language question into an intent and metadata.
 
     Uses the LLM router when enabled; otherwise returns unknown intent.
-    Returns: (intent, slots, confidence, source)
+    Returns: (intent, metadata_dict, confidence, source)
+    where metadata_dict contains 'slots' and optionally 'tokenUsage'
     """
     try:
         intent, meta, conf = llm_router.llm_route(question)
-        slots = meta.get("slots", {}) if isinstance(meta, dict) else {}
         source = "llm" if intent not in ("disabled", "unknown") else "router"
         if intent == "disabled":
             return "unknown", {}, 0.0, "disabled"
-        return intent, slots, float(conf or 0.0), source
+        return intent, meta, float(conf or 0.0), source
     except Exception:
         return "unknown", {}, 0.0, "error"
 
@@ -335,7 +361,10 @@ def handle_count_schedule(location: str|None, job_type: str|None, horizon_min: i
 
 @app.post("/qa")
 def qa(req: QARequest):
-    intent, slots, conf, source = parse_question(req.question)
+    intent, meta, conf, source = parse_question(req.question)
+    slots = meta.get("slots", {}) if isinstance(meta, dict) else {}
+    token_usage = meta.get("tokenUsage") if isinstance(meta, dict) else None
+    
     if intent == "earliest_eta_part":
         out = handle_earliest_eta_part(slots.get("part",""), slots.get("location",""))
     elif intent == "why_reassigned":
@@ -349,6 +378,8 @@ def qa(req: QARequest):
         # Re-ask LLM with a best-effort routing prompt, then call DB-backed handlers
         intent2, meta2, conf2 = llm_router.llm_route_best_effort(req.question)
         slots2 = meta2.get("slots", {}) if isinstance(meta2, dict) else {}
+        token_usage = meta2.get("tokenUsage") if isinstance(meta2, dict) else None
+        
         if intent2 == "earliest_eta_part":
             out = handle_earliest_eta_part(slots2.get("part",""), slots2.get("location",""))
         elif intent2 == "why_reassigned":
@@ -377,6 +408,23 @@ def qa(req: QARequest):
         # prefer confidence from second pass when used
         conf = conf2
         source = "llm"
+    
     out["router"] = {"source": source, "confidence": conf}
+    
+    # Add token usage to response if available
+    if token_usage:
+        import os
+        model_name = os.getenv("LLM_MODEL", "gpt-4o-mini")
+        provider_name = os.getenv("LLM_PROVIDER", "openai").lower()
+        
+        out["tokenUsage"] = {
+            "model": model_name,
+            "provider": provider_name,
+            **token_usage
+        }
+        
+        # Log token usage
+        log_token_usage(intent, model_name, provider_name, token_usage, req.question)
+    
     return out
 

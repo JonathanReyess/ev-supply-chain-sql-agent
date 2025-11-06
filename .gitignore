@@ -44,7 +44,17 @@ __pycache__/
 *.duckdb
 
 # --------------------
-# 5. OS & IDE
+# 5. RUNTIME GENERATED FILES
+# --------------------
+# Token usage logs (contain runtime data and user queries)
+/logs/
+*.jsonl
+
+# Generated plots (created during query execution)
+/plots/
+
+# --------------------
+# 6. OS & IDE
 # --------------------
 # macOS system files
 .DS_Store

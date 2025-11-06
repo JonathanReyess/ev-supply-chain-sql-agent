@@ -99,6 +99,12 @@ def llm_route(question: str) -> Tuple[str, Dict[str, Any], float]:
                 timeout=BUDGET_MS/1000.0,
             )
             txt = resp.choices[0].message.content
+            # Extract token usage from OpenAI response
+            token_usage = {
+                "promptTokens": resp.usage.prompt_tokens if resp.usage else 0,
+                "completionTokens": resp.usage.completion_tokens if resp.usage else 0,
+                "totalTokens": resp.usage.total_tokens if resp.usage else 0
+            }
         elif PROVIDER in ("gemini", "google"):
             genai, HarmCategory, HarmBlockThreshold = _gemini_client()
             # Try gemini-pro-latest as it may have better safety handling
@@ -144,6 +150,12 @@ def llm_route(question: str) -> Tuple[str, Dict[str, Any], float]:
                     txt = "".join(part.text for part in resp.candidates[0].content.parts if hasattr(part, 'text'))
                 else:
                     raise Exception("No content parts found in response")
+            # Extract token usage from Gemini response
+            token_usage = {
+                "promptTokens": resp.usage_metadata.prompt_token_count if hasattr(resp, 'usage_metadata') else 0,
+                "completionTokens": resp.usage_metadata.candidates_token_count if hasattr(resp, 'usage_metadata') else 0,
+                "totalTokens": resp.usage_metadata.total_token_count if hasattr(resp, 'usage_metadata') else 0
+            }
         else:
             client = _anthropic_client()
             resp = client.messages.create(
@@ -156,6 +168,12 @@ def llm_route(question: str) -> Tuple[str, Dict[str, Any], float]:
             )
             # anthropic returns a list of content blocks
             txt = "".join(block.text for block in resp.content if getattr(block,"text",None))
+            # Extract token usage from Anthropic response
+            token_usage = {
+                "promptTokens": resp.usage.input_tokens if hasattr(resp, 'usage') else 0,
+                "completionTokens": resp.usage.output_tokens if hasattr(resp, 'usage') else 0,
+                "totalTokens": (resp.usage.input_tokens + resp.usage.output_tokens) if hasattr(resp, 'usage') else 0
+            }
 
         # Try to extract JSON from response (Gemini sometimes wraps it in markdown code blocks)
         import re
@@ -172,7 +190,7 @@ def llm_route(question: str) -> Tuple[str, Dict[str, Any], float]:
         slots  = parsed.get("slots",{}) or {}
         conf   = float(parsed.get("confidence",0))
         dt_ms  = int((time.time()-t0)*1000)
-        return intent, {"slots":slots, "confidence":conf, "latency_ms":dt_ms}, conf
+        return intent, {"slots":slots, "confidence":conf, "latency_ms":dt_ms, "tokenUsage":token_usage}, conf
     except Exception as e:
         dt_ms = int((time.time()-t0)*1000)
         # Log error for debugging
@@ -205,6 +223,11 @@ def llm_route_best_effort(question: str) -> Tuple[str, Dict[str, Any], float]:
                 timeout=BUDGET_MS/1000.0,
             )
             txt = resp.choices[0].message.content
+            token_usage = {
+                "promptTokens": resp.usage.prompt_tokens if resp.usage else 0,
+                "completionTokens": resp.usage.completion_tokens if resp.usage else 0,
+                "totalTokens": resp.usage.total_tokens if resp.usage else 0
+            }
         elif PROVIDER in ("gemini","google"):
             genai, HarmCategory, HarmBlockThreshold = _gemini_client()
             model_name = MODEL if MODEL else "gemini-pro-latest"
@@ -233,6 +256,11 @@ def llm_route_best_effort(question: str) -> Tuple[str, Dict[str, Any], float]:
                     txt = "".join(part.text for part in resp.candidates[0].content.parts if hasattr(part,'text'))
                 else:
                     raise Exception("No parts")
+            token_usage = {
+                "promptTokens": resp.usage_metadata.prompt_token_count if hasattr(resp, 'usage_metadata') else 0,
+                "completionTokens": resp.usage_metadata.candidates_token_count if hasattr(resp, 'usage_metadata') else 0,
+                "totalTokens": resp.usage_metadata.total_token_count if hasattr(resp, 'usage_metadata') else 0
+            }
         else:
             client = _anthropic_client()
             resp = client.messages.create(
@@ -244,6 +272,11 @@ def llm_route_best_effort(question: str) -> Tuple[str, Dict[str, Any], float]:
                 timeout=BUDGET_MS/1000.0,
             )
             txt = "".join(block.text for block in resp.content if getattr(block,"text",None))
+            token_usage = {
+                "promptTokens": resp.usage.input_tokens if hasattr(resp, 'usage') else 0,
+                "completionTokens": resp.usage.output_tokens if hasattr(resp, 'usage') else 0,
+                "totalTokens": (resp.usage.input_tokens + resp.usage.output_tokens) if hasattr(resp, 'usage') else 0
+            }
 
         # Clean and parse
         import re
@@ -257,8 +290,8 @@ def llm_route_best_effort(question: str) -> Tuple[str, Dict[str, Any], float]:
         # Ensure a valid intent is always returned
         if intent not in ("earliest_eta_part","why_reassigned","door_schedule","count_schedule"):
             intent = "door_schedule"
-        return intent, {"slots":slots, "confidence":conf, "latency_ms":dt_ms}, conf
+        return intent, {"slots":slots, "confidence":conf, "latency_ms":dt_ms, "tokenUsage":token_usage}, conf
     except Exception:
         dt_ms = int((time.time()-t0)*1000)
         # On error, default to door_schedule with empty slots
-        return "door_schedule", {"slots":{}, "confidence":0.0, "latency_ms":dt_ms}, 0.0
+        return "door_schedule", {"slots":{}, "confidence":0.0, "latency_ms":dt_ms, "tokenUsage": {"promptTokens": 0, "completionTokens": 0, "totalTokens": 0}}, 0.0

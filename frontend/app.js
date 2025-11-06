@@ -7,6 +7,10 @@ const API_ENDPOINTS = {
 // State
 let currentAgent = 'sql-of-thought';
 let conversationHistory = [];
+let sessionTokens = {
+    'sql-of-thought': { totalPromptTokens: 0, totalCompletionTokens: 0, totalTokens: 0 },
+    'docking-agent': { totalPromptTokens: 0, totalCompletionTokens: 0, totalTokens: 0 }
+};
 
 // DOM Elements
 const agentSelect = document.getElementById('agentSelect');
@@ -48,6 +52,8 @@ newChatBtn.addEventListener('click', () => {
     messagesContainer.innerHTML = '';
     welcomeScreen.style.display = 'block';
     messageInput.value = '';
+    // Reset session tokens for current agent
+    sessionTokens[currentAgent] = { totalPromptTokens: 0, totalCompletionTokens: 0, totalTokens: 0 };
     console.log('🆕 New conversation started');
 });
 
@@ -115,14 +121,23 @@ async function sendMessage() {
         // Add assistant response
         addMessage(formatResponse(response, currentAgent), 'assistant');
         
-        // Save to history
-        conversationHistory.push({
+        // Save to history with enhanced metadata
+        const historyEntry = {
             question: message,
-            sql: response.sql || null,  // Save SQL for context
-            results: response.results || response.answer,  // Save results summary
+            sql: response.sql || null,
+            results: response.results || response.answer,
             agent: currentAgent,
             timestamp: new Date().toISOString()
-        });
+        };
+        
+        // Add enhanced metadata for SQL-of-Thought
+        if (currentAgent === 'sql-of-thought' && response.metadata) {
+            historyEntry.tables = response.metadata.tables || [];
+            historyEntry.rowCount = response.metadata.rowCount || 0;
+            historyEntry.keyMetric = response.metadata.keyMetric || '';
+        }
+        
+        conversationHistory.push(historyEntry);
     } catch (error) {
         // Remove loading message
         removeMessage(loadingId);
@@ -199,6 +214,42 @@ function formatResponse(response, agent) {
             html += '<p>Query executed successfully but returned no results.</p>';
         }
         
+        // Display token usage
+        if (response.tokenUsage) {
+            const tokenUsage = response.tokenUsage;
+            const aggregate = tokenUsage.aggregate;
+            
+            // Update session tokens
+            sessionTokens[agent].totalPromptTokens += aggregate.totalPromptTokens;
+            sessionTokens[agent].totalCompletionTokens += aggregate.totalCompletionTokens;
+            sessionTokens[agent].totalTokens += aggregate.totalTokens;
+            
+            html += '<div class="token-usage">';
+            html += '<strong>🎯 Token Usage</strong>';
+            html += '<div class="token-summary">';
+            html += `<span>Model: <code>${tokenUsage.model}</code></span>`;
+            html += `<span>Total: <strong>${aggregate.totalTokens}</strong> tokens (${aggregate.totalPromptTokens} in / ${aggregate.totalCompletionTokens} out)</span>`;
+            html += `<span>Session Total: <strong>${sessionTokens[agent].totalTokens}</strong> tokens</span>`;
+            html += '</div>';
+            
+            // Per-agent breakdown (expandable)
+            html += '<details class="token-details">';
+            html += '<summary>Show Per-Agent Breakdown</summary>';
+            html += '<table class="token-table">';
+            html += '<tr><th>Agent</th><th>Prompt Tokens</th><th>Completion Tokens</th><th>Total</th></tr>';
+            tokenUsage.perAgent.forEach(agentUsage => {
+                html += `<tr>`;
+                html += `<td>${agentUsage.agent.replace(/_/g, ' ')}</td>`;
+                html += `<td>${agentUsage.promptTokens}</td>`;
+                html += `<td>${agentUsage.completionTokens}</td>`;
+                html += `<td><strong>${agentUsage.totalTokens}</strong></td>`;
+                html += `</tr>`;
+            });
+            html += '</table>';
+            html += '</details>';
+            html += '</div>';
+        }
+        
         // Display detailed timing breakdown
         if (response.timings) {
             html += '<div class="timing-breakdown">';
@@ -263,6 +314,25 @@ function formatResponse(response, agent) {
         
         if (response.explanation) {
             html += `<p><em>${escapeHtml(response.explanation)}</em></p>`;
+        }
+        
+        // Display token usage for docking agent
+        if (response.tokenUsage) {
+            const tokenUsage = response.tokenUsage;
+            
+            // Update session tokens
+            sessionTokens[agent].totalPromptTokens += tokenUsage.promptTokens;
+            sessionTokens[agent].totalCompletionTokens += tokenUsage.completionTokens;
+            sessionTokens[agent].totalTokens += tokenUsage.totalTokens;
+            
+            html += '<div class="token-usage">';
+            html += '<strong>🎯 Token Usage</strong>';
+            html += '<div class="token-summary">';
+            html += `<span>Model: <code>${tokenUsage.model}</code> (${tokenUsage.provider})</span>`;
+            html += `<span>Total: <strong>${tokenUsage.totalTokens}</strong> tokens (${tokenUsage.promptTokens} in / ${tokenUsage.completionTokens} out)</span>`;
+            html += `<span>Session Total: <strong>${sessionTokens[agent].totalTokens}</strong> tokens</span>`;
+            html += '</div>';
+            html += '</div>';
         }
         
         if (response.router) {

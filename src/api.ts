@@ -8,7 +8,7 @@ import cors from 'cors';
 import * as dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { readFileSync } from 'fs';
+import { readFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 import { GoogleGenAI } from '@google/genai';
 import { getCompleteSchema, formatSchemaForPrompt } from './tools/schema-tool.js';
 import { executeSQL } from './tools/sql-executor-tool.js';
@@ -29,6 +29,32 @@ app.use(express.json());
 const DB_PATH = join(process.cwd(), 'data', 'ev_supply_chain.db');
 const ERROR_TAXONOMY_PATH = join(__dirname, '../data/error-taxonomy.json');
 const MAX_CORRECTION_ATTEMPTS = 3;
+const LOGS_DIR = join(process.cwd(), 'logs');
+
+// Ensure logs directory exists
+if (!existsSync(LOGS_DIR)) {
+  mkdirSync(LOGS_DIR, { recursive: true });
+}
+
+// Logging function for token usage
+function logTokenUsage(agentType: string, model: string, tokenData: any, question: string, conversationId: string = 'default') {
+  const timestamp = new Date().toISOString();
+  const logEntry = {
+    timestamp,
+    conversationId,
+    agentType,
+    model,
+    question: question.substring(0, 100), // Truncate long questions
+    ...tokenData
+  };
+  
+  const logFile = join(LOGS_DIR, `token-usage-sql-of-thought-${new Date().toISOString().split('T')[0]}.jsonl`);
+  try {
+    appendFileSync(logFile, JSON.stringify(logEntry) + '\n');
+  } catch (error) {
+    console.error('Failed to write log:', error);
+  }
+}
 
 // Initialize GoogleGenAI
 const ai = new GoogleGenAI({});
@@ -53,6 +79,18 @@ interface ConversationState {
   limit: number | null;
   groupBy: string[];
   lastSQL: string | null;
+}
+
+// Conversation Summary Interface for sliding-window context management
+interface ConversationSummary {
+  summaryText: string;
+  turnRange: { start: number; end: number };
+  keyMetadata: {
+    tablesUsed: string[];
+    keyMetrics: Array<{ question: string; result: string }>;
+  };
+  tokenCount: number;
+  createdAt: string;
 }
 
 // Simple fallback SQL parser for single-table queries
@@ -494,7 +532,14 @@ Analyze the question and identify the relevant tables, columns, and relationship
     },
   });
 
-  return JSON.parse(response.text || '{}');
+  const result = JSON.parse(response.text || '{}');
+  const tokenUsage = {
+    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: response.usageMetadata?.totalTokenCount || 0,
+  };
+
+  return { result, tokenUsage };
 }
 
 async function subproblemAgent(question: string, linkedSchema: any): Promise<any> {
@@ -518,7 +563,14 @@ Only include clauses that are needed. Return ONLY valid JSON.`;
     },
   });
 
-  return JSON.parse(response.text || '{}');
+  const result = JSON.parse(response.text || '{}');
+  const tokenUsage = {
+    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: response.usageMetadata?.totalTokenCount || 0,
+  };
+
+  return { result, tokenUsage };
 }
 
 async function queryPlanAgent(question: string, linkedSchema: any, subproblems: any, conversationHistory: any[] = []): Promise<any> {
@@ -555,10 +607,17 @@ Create a detailed step-by-step query plan using Chain-of-Thought reasoning. Retu
     },
   });
 
-  return JSON.parse(response.text || '{}');
+  const result = JSON.parse(response.text || '{}');
+  const tokenUsage = {
+    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: response.usageMetadata?.totalTokenCount || 0,
+  };
+
+  return { result, tokenUsage };
 }
 
-async function sqlGenerationAgent(question: string, queryPlan: any, linkedSchema: any, conversationHistory: any[] = []): Promise<string> {
+async function sqlGenerationAgent(question: string, queryPlan: any, linkedSchema: any, conversationHistory: any[] = []): Promise<any> {
   let historyContext = '';
   if (conversationHistory && conversationHistory.length > 0) {
     const lastQuery = conversationHistory[conversationHistory.length - 1];
@@ -603,7 +662,13 @@ Generate the SQL query that implements this plan. Return ONLY the SQL query, no 
     .replace(/```\n?/g, '')
     .trim();
 
-  return cleanedSQL;
+  const tokenUsage = {
+    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: response.usageMetadata?.totalTokenCount || 0,
+  };
+
+  return { sql: cleanedSQL, tokenUsage };
 }
 
 async function correctionPlanAgent(
@@ -642,7 +707,14 @@ Analyze this error using the taxonomy and provide a structured correction plan. 
     },
   });
 
-  return JSON.parse(response.text || '{}');
+  const result = JSON.parse(response.text || '{}');
+  const tokenUsage = {
+    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: response.usageMetadata?.totalTokenCount || 0,
+  };
+
+  return { result, tokenUsage };
 }
 
 async function correctionSQLAgent(
@@ -650,7 +722,7 @@ async function correctionSQLAgent(
   incorrectSQL: string,
   correctionPlan: any,
   linkedSchema: any
-): Promise<string> {
+): Promise<any> {
   const prompt = `You are an expert SQL query corrector. Fix the SQL query based on the correction plan.
 
 Question: "${question}"
@@ -682,15 +754,114 @@ Generate the corrected SQL query that addresses all issues identified in the cor
     .replace(/```\n?/g, '')
     .trim();
 
-  return cleanedSQL;
+  const tokenUsage = {
+    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: response.usageMetadata?.totalTokenCount || 0,
+  };
+
+  return { sql: cleanedSQL, tokenUsage };
 }
+
+/**
+ * Generate or update a conversation summary for context management
+ * Enforces 200-word maximum and includes key metadata
+ */
+async function generateConversationSummary(
+  turns: any[],
+  existingSummary?: ConversationSummary
+): Promise<ConversationSummary> {
+  console.log(`\n📝 [Summary Generation] Summarizing ${turns.length} turns...`);
+  
+  // Extract metadata from turns
+  const allTables = new Set<string>();
+  const keyMetrics: Array<{ question: string; result: string }> = [];
+  
+  turns.forEach(turn => {
+    if (turn.tables && Array.isArray(turn.tables)) {
+      turn.tables.forEach((t: string) => allTables.add(t));
+    }
+    if (turn.question && turn.rowCount !== undefined) {
+      const metric = turn.keyMetric || `${turn.rowCount} rows`;
+      keyMetrics.push({ question: turn.question, result: metric });
+    }
+  });
+
+  // Build prompt for summary generation
+  const previousSummary = existingSummary ? `\nPrevious Summary:\n${existingSummary.summaryText}\n` : '';
+  const turnsContext = turns.map((t, idx) => 
+    `Turn ${idx + 1}: Q: "${t.question}" | SQL: ${t.sql || 'N/A'} | Result: ${t.rowCount || 0} rows${t.keyMetric ? ' | ' + t.keyMetric : ''}`
+  ).join('\n');
+
+  const prompt = `You are a conversation summarizer for a SQL query system. Create a concise summary of the conversation history.
+
+${previousSummary}
+
+## Recent Conversation Turns
+${turnsContext}
+
+## Requirements
+- **Maximum 200 words**
+- Include: (a) user questions summarized, (b) key result numbers, (c) table names used
+- Format: "User queried [tables]. Q1: X, result: Y rows. Q2: Z, metric: M."
+- Be concise and factual
+
+Return ONLY the summary text, no additional commentary.`;
+
+  const response = await ai.models.generateContent({
+    model: MODEL,
+    contents: prompt,
+    config: {
+      temperature: 0.3, // Lower temperature for factual summarization
+      maxOutputTokens: 300, // Enforce token limit (roughly 200 words)
+    },
+  });
+
+  const summaryText = response.text?.trim() || '';
+  const tokenCount = response.usageMetadata?.totalTokenCount || 0;
+
+  return {
+    summaryText,
+    turnRange: { start: existingSummary ? existingSummary.turnRange.start : 1, end: turns.length },
+    keyMetadata: {
+      tablesUsed: Array.from(allTables),
+      keyMetrics
+    },
+    tokenCount,
+    createdAt: new Date().toISOString()
+  };
+}
+
+// Global summaryStorage (in production, this should be per-session in database or Redis)
+let conversationSummaryStorage: ConversationSummary | null = null;
 
 // Main SQL-of-Thought function
 async function sqlOfThought(question: string, conversationHistory: any[] = []): Promise<any> {
   const pipelineStart = Date.now();
   const timings: any = {};
+  const tokenUsagePerAgent: any[] = [];
   
   try {
+    // Prepare context with sliding-window strategy
+    let contextForAgents = conversationHistory;
+    if (conversationHistory.length > 3) {
+      // Generate or update summary for turns 0 to -3
+      const oldTurns = conversationHistory.slice(0, -3);
+      conversationSummaryStorage = await generateConversationSummary(oldTurns, conversationSummaryStorage || undefined);
+      
+      // Use summary + last 3 turns
+      contextForAgents = [
+        { 
+          isSummary: true, 
+          summaryText: conversationSummaryStorage.summaryText,
+          tables: conversationSummaryStorage.keyMetadata.tablesUsed
+        },
+        ...conversationHistory.slice(-3)
+      ];
+      
+      console.log(`\n📚 [Context Management] Using summary (${conversationSummaryStorage.tokenCount} tokens) + last 3 turns`);
+    }
+    
     // Get database schema
     let stepStart = Date.now();
     const schema = await getCompleteSchema(DB_PATH);
@@ -698,23 +869,43 @@ async function sqlOfThought(question: string, conversationHistory: any[] = []): 
 
     // Schema Linking
     stepStart = Date.now();
-    const linkedSchema = await schemaLinkingAgent(question, schema, conversationHistory);
+    const schemaLinkingResult = await schemaLinkingAgent(question, schema, contextForAgents);
+    const linkedSchema = schemaLinkingResult.result;
     timings.schema_linking_ms = Date.now() - stepStart;
+    tokenUsagePerAgent.push({
+      agent: 'schema_linking',
+      ...schemaLinkingResult.tokenUsage
+    });
 
     // Subproblem Identification
     stepStart = Date.now();
-    const subproblems = await subproblemAgent(question, linkedSchema);
+    const subproblemResult = await subproblemAgent(question, linkedSchema);
+    const subproblems = subproblemResult.result;
     timings.subproblem_ms = Date.now() - stepStart;
+    tokenUsagePerAgent.push({
+      agent: 'subproblem',
+      ...subproblemResult.tokenUsage
+    });
 
     // Query Plan Generation
     stepStart = Date.now();
-    const queryPlan = await queryPlanAgent(question, linkedSchema, subproblems, conversationHistory);
+    const queryPlanResult = await queryPlanAgent(question, linkedSchema, subproblems, contextForAgents);
+    const queryPlan = queryPlanResult.result;
     timings.query_plan_ms = Date.now() - stepStart;
+    tokenUsagePerAgent.push({
+      agent: 'query_plan',
+      ...queryPlanResult.tokenUsage
+    });
 
     // SQL Generation
     stepStart = Date.now();
-    let generatedSQL = await sqlGenerationAgent(question, queryPlan, linkedSchema, conversationHistory);
+    const sqlGenResult = await sqlGenerationAgent(question, queryPlan, linkedSchema, contextForAgents);
+    let generatedSQL = sqlGenResult.sql;
     timings.sql_generation_ms = Date.now() - stepStart;
+    tokenUsagePerAgent.push({
+      agent: 'sql_generation',
+      ...sqlGenResult.tokenUsage
+    });
 
     // Execute and potentially correct
     let attempt = 0;
@@ -741,20 +932,71 @@ async function sqlOfThought(question: string, conversationHistory: any[] = []): 
           return converted;
         });
 
+        // Calculate aggregate token usage
+        const aggregateTokens = {
+          totalPromptTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.promptTokens, 0),
+          totalCompletionTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.completionTokens, 0),
+          totalTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.totalTokens, 0)
+        };
+
+        // Log token usage for each agent
+        tokenUsagePerAgent.forEach(agentUsage => {
+          logTokenUsage(agentUsage.agent, MODEL, agentUsage, question);
+        });
+
+        // Extract key metric if present (e.g., aggregation result)
+        let keyMetric = '';
+        if (resultsConverted && resultsConverted.length > 0) {
+          const firstRow = resultsConverted[0];
+          const keys = Object.keys(firstRow);
+          // Check if there's an aggregation (COUNT, AVG, SUM, etc.)
+          const aggregateKey = keys.find(k => 
+            k.match(/^(COUNT|AVG|SUM|MIN|MAX|TOTAL)/i) || 
+            k.toLowerCase().includes('average') ||
+            k.toLowerCase().includes('total')
+          );
+          if (aggregateKey) {
+            keyMetric = `${aggregateKey}: ${firstRow[aggregateKey]}`;
+          }
+        }
+
         return {
           success: true,
           sql: generatedSQL,
           results: resultsConverted || [],
           row_count: result.row_count,
           execution_time_ms: result.execution_time_ms,
-          timings: timings
+          timings: timings,
+          tokenUsage: {
+            model: MODEL,
+            perAgent: tokenUsagePerAgent,
+            aggregate: aggregateTokens
+          },
+          // Enhanced metadata for conversation history
+          metadata: {
+            tables: linkedSchema.tables || [],
+            rowCount: result.row_count,
+            keyMetric: keyMetric
+          }
         };
       } else {
         if (attempt < MAX_CORRECTION_ATTEMPTS) {
           // Enter correction loop
           const correctionStart = Date.now();
-          const correctionPlan = await correctionPlanAgent(question, generatedSQL, result.error || '', linkedSchema);
-          generatedSQL = await correctionSQLAgent(question, generatedSQL, correctionPlan, linkedSchema);
+          const correctionPlanResult = await correctionPlanAgent(question, generatedSQL, result.error || '', linkedSchema);
+          const correctionPlan = correctionPlanResult.result;
+          tokenUsagePerAgent.push({
+            agent: 'correction_plan',
+            ...correctionPlanResult.tokenUsage
+          });
+          
+          const correctionSQLResult = await correctionSQLAgent(question, generatedSQL, correctionPlan, linkedSchema);
+          generatedSQL = correctionSQLResult.sql;
+          tokenUsagePerAgent.push({
+            agent: 'correction_sql',
+            ...correctionSQLResult.tokenUsage
+          });
+          
           correctionTimings.push(Date.now() - correctionStart);
         }
         attempt++;
@@ -766,19 +1008,44 @@ async function sqlOfThought(question: string, conversationHistory: any[] = []): 
     }
     timings.total_pipeline_ms = Date.now() - pipelineStart;
 
+    // Calculate aggregate token usage even on failure
+    const aggregateTokens = {
+      totalPromptTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.promptTokens, 0),
+      totalCompletionTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.completionTokens, 0),
+      totalTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.totalTokens, 0)
+    };
+
     return {
       success: false,
       error: result.error || 'Unknown error',
       sql: generatedSQL,
       attempts: attempt,
-      timings: timings
+      timings: timings,
+      tokenUsage: {
+        model: MODEL,
+        perAgent: tokenUsagePerAgent,
+        aggregate: aggregateTokens
+      }
     };
   } catch (error: any) {
     timings.total_pipeline_ms = Date.now() - pipelineStart;
+    
+    // Calculate aggregate token usage for partial execution
+    const aggregateTokens = tokenUsagePerAgent.length > 0 ? {
+      totalPromptTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.promptTokens, 0),
+      totalCompletionTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.completionTokens, 0),
+      totalTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.totalTokens, 0)
+    } : null;
+
     return {
       success: false,
       error: error.message || 'Pipeline error',
-      timings: timings
+      timings: timings,
+      tokenUsage: aggregateTokens ? {
+        model: MODEL,
+        perAgent: tokenUsagePerAgent,
+        aggregate: aggregateTokens
+      } : null
     };
   }
 }
