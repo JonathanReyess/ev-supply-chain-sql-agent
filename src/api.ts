@@ -789,24 +789,29 @@ async function generateConversationSummary(
 
   // Build prompt for summary generation
   const previousSummary = existingSummary ? `\nPrevious Summary:\n${existingSummary.summaryText}\n` : '';
-  const turnsContext = turns.map((t, idx) => 
-    `Turn ${idx + 1}: Q: "${t.question}" | SQL: ${t.sql || 'N/A'} | Result: ${t.rowCount || 0} rows${t.keyMetric ? ' | ' + t.keyMetric : ''}`
-  ).join('\n');
+  const turnsContext = turns.map((t, idx) => {
+    const resultInfo = t.keyMetric ? t.keyMetric : `${t.rowCount || 0} rows returned`;
+    return `Turn ${idx + 1}:
+  - Question: "${t.question}"
+  - Tables: ${t.tables?.join(', ') || 'unknown'}
+  - Key Result: ${resultInfo}`;
+  }).join('\n\n');
 
   const prompt = `You are a conversation summarizer for a SQL query system. Create a concise summary of the conversation history.
 
 ${previousSummary}
 
-## Recent Conversation Turns
+## Conversation Turns to Summarize
 ${turnsContext}
 
 ## Requirements
 - **Maximum 200 words**
-- Include: (a) user questions summarized, (b) key result numbers, (c) table names used
-- Format: "User queried [tables]. Q1: X, result: Y rows. Q2: Z, metric: M."
-- Be concise and factual
+- CRITICAL: Include the actual KEY RESULT numbers (like "60 suppliers", "average: 84.5"), NOT just "X rows returned"
+- Include: (a) what user asked, (b) the actual numeric answers/metrics, (c) table names queried
+- Format example: "User queried suppliers table, finding 60 suppliers with average reliability 84.5. Then queried components table, finding 150 items in stock."
+- Be concise, factual, and include the ACTUAL result numbers
 
-Return ONLY the summary text, no additional commentary.`;
+Return ONLY the summary text, no additional commentary or formatting.`;
 
   const response = await ai.models.generateContent({
     model: MODEL,
