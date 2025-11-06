@@ -450,7 +450,7 @@ async function sqlOfThought(question: string): Promise<void> {
     let queryPlan: any;
     // Simple Heuristic: Check for keywords indicating a complex KPI calculation
     const isKPIQuestion = question.toLowerCase().includes('average') && question.toLowerCase().includes('time');
-
+   
     if (isKPIQuestion) {
         console.log('\n✨ [Orchestrator] Detected KPI question. Activating KPI flow...');
         
