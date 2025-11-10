@@ -9,8 +9,18 @@ BUDGET_MS = int(os.getenv("LLM_LATENCY_MS", "400"))
 ALLOWED_INTENTS = [
   "earliest_eta_part",   # slots: part, location
   "why_reassigned",      # slots: door
-  "door_schedule"        # slots: location
+  "door_schedule",       # slots: location
+  "count_schedule"       # slots: location, job_type, horizon_min
 ]
+
+# Intent-specific latency budgets (ms) - orchestrator can override
+INTENT_LATENCY_BUDGETS = {
+  "earliest_eta_part": 300,   # Fast lookup
+  "door_schedule": 400,        # Moderate complexity
+  "count_schedule": 250,       # Simple aggregation
+  "why_reassigned": 600,       # Complex causal analysis
+  "unknown": 200               # Quick rejection
+}
 
 SCHEMA_CARD = {
   "locations_examples": ["Fremont CA","Austin TX","Shanghai","Berlin","Nevada Gigafactory","Raleigh Service Center"],
@@ -63,40 +73,74 @@ def _gemini_client():
     genai.configure(api_key=api_key)
     return genai, HarmCategory, HarmBlockThreshold
 
-SYSTEM = (
-  "You are an intent router for dock operations. Return only JSON with: intent, slots (object), confidence (0-1)."
-)
+SYSTEM = """You are an intent router for dock operations using systematic analysis.
+
+SYSTEMATIC APPROACH:
+1. Identify the core question type (what/when/why/how many/where)
+2. Extract all entities mentioned (locations, doors, trucks, parts, times)
+3. Determine the user's goal (query info, understand causality, count items)
+4. Map to the most specific intent that matches the goal
+5. Structure all extracted entities as slots
+
+Return only JSON with: intent, slots (object), confidence (0-1), reasoning (brief)."""
 
 USER_TMPL = """Question: {q}
 
-Intents:
-- earliest_eta_part: for questions about earliest arrival times (slots: part?, location?)
-- door_schedule: for questions about schedules, assignments, or what's happening at docks (slots: location?)
-- why_reassigned: for questions asking WHY something happened, especially reassignments, changes, or reasons (slots: door? [number like "4" or code like "FCX-D04"])
-- count_schedule: for questions asking HOW MANY or counting assignments (slots: location?, job_type? [inbound|outbound|all], horizon_min? [int])
+Context: {context}
+
+SYSTEMATIC ANALYSIS STEPS:
+1. Question Type: [Identify: what/when/why/how many/where]
+2. Entities Extracted: [List all: locations, doors, parts, IDs, times]
+3. User Goal: [What does the user want to know or accomplish?]
+4. Best Intent: [Map to one of the intents below]
+
+Available Intents:
+- earliest_eta_part: When will something arrive? (slots: part?, location?)
+- door_schedule: What's happening at docks/schedule? (slots: location?)
+- why_reassigned: Why did something happen/change? (slots: door? [number like "4" or code like "FCX-D04"])
+- count_schedule: How many items/assignments? (slots: location?, job_type? [inbound|outbound|all], horizon_min? [int])
 
 Schema: {schema}
 
-Rules:
-- Questions with "why", "reassigned", "re-assigned", "changed", "reason" → use why_reassigned
-- Questions with "how many", "count", "number of" → use count_schedule
-- Questions with "earliest", "eta", "arrival", "when will" → use earliest_eta_part
-- Questions about schedules, assignments, what's happening → use door_schedule
-- Extract clean identifiers: 
-  * 'part' like C00015
-  * 'location' MUST match exactly: "Fremont CA", "Austin TX", "Shanghai", "Berlin", "Nevada Gigafactory", or "Raleigh Service Center"
-  * 'door' like FCX-D04 or just '4' (numeric)
-  * 'job_type' inbound/outbound
-- ALWAYS extract location if mentioned in question (e.g., "Shanghai" → "Shanghai", "Fremont" → "Fremont CA")
-- If not dock-related, use intent=\"unknown\".
+ENTITY EXTRACTION RULES:
+- 'part': Component IDs like C00015 or component name tokens
+- 'location': MUST match exactly: "Fremont CA", "Austin TX", "Shanghai", "Berlin", "Nevada Gigafactory", or "Raleigh Service Center"
+  * Map aliases: "fremont"→"Fremont CA", "shanghai"→"Shanghai", "austin"→"Austin TX", etc.
+- 'door': Door IDs like FCX-D04 or numeric like '4'
+- 'job_type': "inbound" or "outbound" (extract from context)
+- 'horizon_min': Time window in minutes (default: 480 for 8 hours)
 
-Return only valid JSON."""
+INTENT SELECTION LOGIC:
+- Keywords "why", "reason", "cause", "reassigned", "changed" → why_reassigned
+- Keywords "how many", "count", "number of", "total" → count_schedule
+- Keywords "earliest", "eta", "arrival", "when will", "next" → earliest_eta_part
+- Keywords "schedule", "assignments", "what's happening", "doors" → door_schedule
+- If not dock-related → intent="unknown"
 
-def llm_route(question: str) -> Tuple[str, Dict[str, Any], float]:
+Return JSON with: {{"intent": "...", "slots": {{}}, "confidence": 0.0-1.0, "reasoning": "brief explanation"}}"""
+
+def llm_route(question: str, context: Dict[str, Any] = None) -> Tuple[str, Dict[str, Any], float]:
+    """Route question to intent using LLM with systematic approach.
+    
+    Args:
+        question: Natural language question
+        context: Optional context from orchestrator (e.g., {"location": "Fremont CA", "priority": 5})
+    
+    Returns:
+        (intent, metadata, confidence)
+    """
     if not USE_LLM:
         return "disabled", {}, 0.0
     t0 = time.time()
-    payload = USER_TMPL.format(q=question, schema=json.dumps(SCHEMA_CARD))
+    
+    # Format context for prompt
+    context_str = ""
+    if context:
+        context_str = "Orchestrator Context:\n" + "\n".join(f"- {k}: {v}" for k, v in context.items())
+    else:
+        context_str = "No additional context provided"
+    
+    payload = USER_TMPL.format(q=question, context=context_str, schema=json.dumps(SCHEMA_CARD))
     try:
         if PROVIDER == "openai":
             client = _openai_client()
@@ -183,8 +227,21 @@ def llm_route(question: str) -> Tuple[str, Dict[str, Any], float]:
         intent = parsed.get("intent","unknown")
         slots  = parsed.get("slots",{}) or {}
         conf   = float(parsed.get("confidence",0))
+        reasoning = parsed.get("reasoning", "")
         dt_ms  = int((time.time()-t0)*1000)
-        return intent, {"slots":slots, "confidence":conf, "latency_ms":dt_ms}, conf
+        
+        # Check if latency exceeds intent-specific budget
+        budget = INTENT_LATENCY_BUDGETS.get(intent, BUDGET_MS)
+        latency_warning = dt_ms > budget
+        
+        return intent, {
+            "slots": slots, 
+            "confidence": conf, 
+            "latency_ms": dt_ms,
+            "reasoning": reasoning,
+            "latency_budget_ms": budget,
+            "latency_exceeded": latency_warning
+        }, conf
     except Exception as e:
         dt_ms = int((time.time()-t0)*1000)
         # Log error for debugging
@@ -200,9 +257,17 @@ BEST_EFFORT_SYSTEM = (
   "Return JSON only with keys: intent, slots (object), confidence (0-1). If a slot is unknown, omit it."
 )
 
-def llm_route_best_effort(question: str) -> Tuple[str, Dict[str, Any], float]:
+def llm_route_best_effort(question: str, context: Dict[str, Any] = None) -> Tuple[str, Dict[str, Any], float]:
     t0 = time.time()
-    payload = USER_TMPL.format(q=question, schema=json.dumps(SCHEMA_CARD))
+    
+    # Format context for prompt
+    context_str = ""
+    if context:
+        context_str = "Orchestrator Context:\n" + "\n".join(f"- {k}: {v}" for k, v in context.items())
+    else:
+        context_str = "No additional context provided"
+    
+    payload = USER_TMPL.format(q=question, context=context_str, schema=json.dumps(SCHEMA_CARD))
     try:
         if PROVIDER == "openai":
             client = _openai_client()
@@ -265,11 +330,21 @@ def llm_route_best_effort(question: str) -> Tuple[str, Dict[str, Any], float]:
         intent = parsed.get("intent","unknown")
         slots  = parsed.get("slots",{}) or {}
         conf   = float(parsed.get("confidence",0))
+        reasoning = parsed.get("reasoning", "")
         dt_ms  = int((time.time()-t0)*1000)
         # Ensure a valid intent is always returned
         if intent not in ("earliest_eta_part","why_reassigned","door_schedule","count_schedule"):
             intent = "door_schedule"
-        return intent, {"slots":slots, "confidence":conf, "latency_ms":dt_ms}, conf
+        
+        budget = INTENT_LATENCY_BUDGETS.get(intent, BUDGET_MS)
+        return intent, {
+            "slots": slots, 
+            "confidence": conf, 
+            "latency_ms": dt_ms,
+            "reasoning": reasoning,
+            "latency_budget_ms": budget,
+            "latency_exceeded": dt_ms > budget
+        }, conf
     except Exception:
         dt_ms = int((time.time()-t0)*1000)
         # On error, default to door_schedule with empty slots

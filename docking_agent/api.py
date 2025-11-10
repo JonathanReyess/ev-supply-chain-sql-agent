@@ -15,21 +15,27 @@ except Exception:
     # dotenv is optional; continue if not installed
     pass
 
-from . import llm_router
+try:
+    from . import llm_router
+except ImportError:
+    import llm_router
 
 app = FastAPI(title="Docking Agent API")
 
 class QARequest(BaseModel):
     question: str
 
-def parse_question(question: str) -> Tuple[str, Dict[str, Any], float, str]:
+def parse_question(question: str, context: Dict[str, Any] = None) -> Tuple[str, Dict[str, Any], float, str]:
     """Parse a natural-language question into an intent and slots.
 
     Uses the LLM router when enabled; otherwise returns unknown intent.
+    Args:
+        question: Natural language question
+        context: Optional context dict to pass to LLM router
     Returns: (intent, slots, confidence, source)
     """
     try:
-        intent, meta, conf = llm_router.llm_route(question)
+        intent, meta, conf = llm_router.llm_route(question, context=context)
         slots = meta.get("slots", {}) if isinstance(meta, dict) else {}
         source = "llm" if intent not in ("disabled", "unknown") else "router"
         if intent == "disabled":
@@ -560,9 +566,94 @@ def _extract_location_from_text(text: str) -> str:
     
     return ""
 
+def _extract_structured_context(question: str) -> Dict[str, Any]:
+    """Extract structured context from question before LLM routing.
+    
+    This implements the orchestrator's pre-processing step to provide
+    the LLM with structured hints for systematic analysis.
+    """
+    import re
+    context = {}
+    q_lower = question.lower()
+    
+    # Extract location hints
+    location = _extract_location_from_text(question)
+    if location:
+        context["location_hint"] = location
+    
+    # Extract priority hints
+    if re.search(r'\b(urgent|critical|high priority|asap|emergency)\b', q_lower):
+        context["priority_hint"] = "high"
+    elif re.search(r'\b(low priority|whenever|not urgent|optional)\b', q_lower):
+        context["priority_hint"] = "low"
+    else:
+        context["priority_hint"] = "normal"
+    
+    # Extract time horizon hints
+    time_match = re.search(r'(\d+)\s*(hour|hr|minute|min|day)', q_lower)
+    if time_match:
+        value = int(time_match.group(1))
+        unit = time_match.group(2)
+        if 'hour' in unit or 'hr' in unit:
+            context["horizon_minutes"] = value * 60
+        elif 'day' in unit:
+            context["horizon_minutes"] = value * 24 * 60
+        else:
+            context["horizon_minutes"] = value
+    
+    # Extract job type hints
+    if re.search(r'\b(inbound|receiving|unload|arrival|incoming)\b', q_lower):
+        context["job_type_hint"] = "inbound"
+    elif re.search(r'\b(outbound|shipping|load|departure|outgoing)\b', q_lower):
+        context["job_type_hint"] = "outbound"
+    
+    # Extract door ID hints
+    door_match = re.search(r'\b([A-Z]{3}-D\d{2})\b', question.upper())
+    if door_match:
+        context["door_id_hint"] = door_match.group(1)
+    else:
+        door_num_match = re.search(r'\bdoor\s*(\d{1,2})\b', q_lower)
+        if door_num_match:
+            context["door_number_hint"] = door_num_match.group(1)
+    
+    # Extract part/component hints
+    part_match = re.search(r'\b(C\d{5})\b', question.upper())
+    if part_match:
+        context["part_hint"] = part_match.group(1)
+    
+    # Extract truck/load ID hints
+    truck_match = re.search(r'\b(T-[A-Z]{3}-\d{3})\b', question.upper())
+    if truck_match:
+        context["truck_id_hint"] = truck_match.group(1)
+    
+    load_match = re.search(r'\b(L-[A-Z]{3}-\d{3})\b', question.upper())
+    if load_match:
+        context["load_id_hint"] = load_match.group(1)
+    
+    # Extract assignment ID hints
+    assignment_match = re.search(r'\b(ASG-[A-Z]{3}-\d{5})\b', question.upper())
+    if assignment_match:
+        context["assignment_id_hint"] = assignment_match.group(1)
+    
+    # Detect question intent hints
+    if re.search(r'\b(why|reason|cause|because|explain)\b', q_lower):
+        context["intent_hint"] = "causal_analysis"
+    elif re.search(r'\b(how many|count|number of|total|sum)\b', q_lower):
+        context["intent_hint"] = "count_query"
+    elif re.search(r'\b(when|earliest|eta|arrival|next)\b', q_lower):
+        context["intent_hint"] = "time_query"
+    elif re.search(r'\b(schedule|assignments|what.*happening|status)\b', q_lower):
+        context["intent_hint"] = "schedule_query"
+    
+    return context
+
 @app.post("/qa")
 def qa(req: QARequest):
-    intent, slots, conf, source = parse_question(req.question)
+    # Pre-process question to extract structured context (orchestrator-style)
+    context = _extract_structured_context(req.question)
+    
+    # Route through LLM with systematic approach
+    intent, slots, conf, source = parse_question(req.question, context=context)
     
     # If location is missing but might be in the question, extract it
     if not slots.get("location") and req.question:

@@ -264,16 +264,77 @@ class DockingOrchestrator:
             )
     
     def _answer_question(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Answer natural language question"""
+        """Answer natural language question with orchestrator pre-processing"""
         question = params["question"]
         
-        # Parse intent
-        intent = self.nlp_engine.parse_query(question)
+        # Orchestrator pre-processing: extract structured context
+        orchestrator_context = self._extract_context_from_question(question)
+        
+        # Parse intent with structured context (LLM routing with systematic approach)
+        intent = self.nlp_engine.parse_query(question, context=orchestrator_context)
         
         # Handle query
         result = self.query_handlers.handle_query(intent)
         
+        # Add orchestrator metadata
+        result["orchestrator_context"] = orchestrator_context
+        
         return result
+    
+    def _extract_context_from_question(self, question: str) -> Dict[str, Any]:
+        """Extract structured context before LLM routing (orchestrator preprocessing)"""
+        import re
+        context = {}
+        
+        # Extract location hints
+        location_patterns = {
+            "Fremont CA": r'\b(fremont|fre|fcx)\b',
+            "Austin TX": r'\b(austin|aus|atx)\b',
+            "Shanghai": r'\b(shanghai|sha|shg)\b',
+            "Berlin": r'\b(berlin|ber|bln)\b',
+            "Nevada Gigafactory": r'\b(nevada|gigafactory|nev)\b',
+            "Raleigh Service Center": r'\b(raleigh|ral|rsc)\b'
+        }
+        q_lower = question.lower()
+        for loc, pattern in location_patterns.items():
+            if re.search(pattern, q_lower):
+                context["location_hint"] = loc
+                break
+        
+        # Extract priority hints
+        if re.search(r'\b(urgent|critical|high priority|asap)\b', q_lower):
+            context["priority_hint"] = "high"
+        elif re.search(r'\b(low priority|whenever|not urgent)\b', q_lower):
+            context["priority_hint"] = "low"
+        
+        # Extract time horizon hints
+        time_match = re.search(r'(\d+)\s*(hour|hr|minute|min|day)', q_lower)
+        if time_match:
+            value = int(time_match.group(1))
+            unit = time_match.group(2)
+            if 'hour' in unit or 'hr' in unit:
+                context["horizon_minutes"] = value * 60
+            elif 'day' in unit:
+                context["horizon_minutes"] = value * 24 * 60
+            else:
+                context["horizon_minutes"] = value
+        
+        # Extract job type hints
+        if re.search(r'\b(inbound|receiving|unload)\b', q_lower):
+            context["job_type_hint"] = "inbound"
+        elif re.search(r'\b(outbound|shipping|load)\b', q_lower):
+            context["job_type_hint"] = "outbound"
+        
+        # Extract door ID hints
+        door_match = re.search(r'\b([A-Z]{3}-D\d{2})\b', question.upper())
+        if door_match:
+            context["door_id_hint"] = door_match.group(1)
+        else:
+            door_num_match = re.search(r'\bdoor\s*(\d{1,2})\b', q_lower)
+            if door_num_match:
+                context["door_number_hint"] = door_num_match.group(1)
+        
+        return context
     
     def _allocate_inbound(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Allocate inbound truck"""
