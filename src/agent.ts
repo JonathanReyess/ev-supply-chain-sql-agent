@@ -8,7 +8,6 @@ import * as dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync } from 'fs';
-// NOTE: Assuming these tool imports are correctly set up in your environment
 import { getCompleteSchema, formatSchemaForPrompt } from './tools/schema-tool.js';
 import { executeSQL } from './tools/sql-executor-tool.js';
 import { generatePlot, PlottingInput, PlottingInputJSONSchema } from './tools/plotting-tool.js';
@@ -30,7 +29,6 @@ const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const TEMPERATURE = parseFloat(process.env.TEMPERATURE || '0.7');
 
 // Load resources
-// NOTE: Ensure the path to your error-taxonomy.json is correct relative to the script
 const errorTaxonomy = JSON.parse(readFileSync(ERROR_TAXONOMY_PATH, 'utf-8'));
 
 /**
@@ -127,8 +125,6 @@ async function toolSchemaLinking(state: AgentState): Promise<string> {
   if (!state.schema) {
     return 'Error: Schema not loaded. Please load schema first.';
   }
-
-  // NOTE: Assuming your prompts/schema-linking.md path is correct
   const prompt = `${readFileSync(join(__dirname, 'prompts/schema-linking.md'), 'utf-8')}
 
 ## Database Schema
@@ -206,7 +202,6 @@ async function toolSubproblemIdentification(state: AgentState): Promise<string> 
     return 'Error: Schema linking not performed. Please link schema first.';
   }
 
-  // 👇 FIX: Removed the bloated 'Relevant columns' line from the prompt.
   const prompt = `You are a SQL query decomposition expert. Given a natural language question, break it down into SQL clause-level subproblems.
 
 Question: "${state.question}"
