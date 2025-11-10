@@ -14,6 +14,11 @@ ALLOWED_INTENTS = [
 
 SCHEMA_CARD = {
   "locations_examples": ["Fremont CA","Austin TX","Shanghai","Berlin","Nevada Gigafactory","Raleigh Service Center"],
+  "location_aliases": {
+    "fremont": "Fremont CA", "austin": "Austin TX", "shanghai": "Shanghai",
+    "berlin": "Berlin", "nevada": "Nevada Gigafactory", "gigafactory": "Nevada Gigafactory",
+    "raleigh": "Raleigh Service Center"
+  },
   "entities": {
     "part": "componentid like C00015, or component name tokens",
     "door": "dock numeric like 4 or full code like FRE-D04"
@@ -65,16 +70,25 @@ SYSTEM = (
 USER_TMPL = """Question: {q}
 
 Intents:
-- earliest_eta_part (slots: part?, location?)
-- door_schedule (slots: location?)
-- why_reassigned (slots: door?)
-- count_schedule (slots: location?, job_type? [inbound|outbound|all], horizon_min? [int])
+- earliest_eta_part: for questions about earliest arrival times (slots: part?, location?)
+- door_schedule: for questions about schedules, assignments, or what's happening at docks (slots: location?)
+- why_reassigned: for questions asking WHY something happened, especially reassignments, changes, or reasons (slots: door? [number like "4" or code like "FCX-D04"])
+- count_schedule: for questions asking HOW MANY or counting assignments (slots: location?, job_type? [inbound|outbound|all], horizon_min? [int])
 
 Schema: {schema}
 
 Rules:
+- Questions with "why", "reassigned", "re-assigned", "changed", "reason" → use why_reassigned
+- Questions with "how many", "count", "number of" → use count_schedule
+- Questions with "earliest", "eta", "arrival", "when will" → use earliest_eta_part
+- Questions about schedules, assignments, what's happening → use door_schedule
+- Extract clean identifiers: 
+  * 'part' like C00015
+  * 'location' MUST match exactly: "Fremont CA", "Austin TX", "Shanghai", "Berlin", "Nevada Gigafactory", or "Raleigh Service Center"
+  * 'door' like FCX-D04 or just '4' (numeric)
+  * 'job_type' inbound/outbound
+- ALWAYS extract location if mentioned in question (e.g., "Shanghai" → "Shanghai", "Fremont" → "Fremont CA")
 - If not dock-related, use intent=\"unknown\".
-- Extract clean identifiers: 'part' like C00015, 'location' like Fremont CA, 'door' like FCX-D04, 'job_type' inbound/outbound.
 
 Return only valid JSON."""
 
