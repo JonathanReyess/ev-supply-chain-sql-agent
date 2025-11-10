@@ -531,6 +531,111 @@ def handle_count_schedule(location: str|None, job_type: str|None, horizon_min: i
     finally:
         conn.close()
 
+def handle_optimize_schedule(location: str, horizon_min: int = 240) -> Dict[str, Any]:
+    """Optimize dock schedule using solver for pending trucks/loads at a location"""
+    from .agent import optimize_batch_and_commit
+    
+    location = (location or "").strip()
+    if not location:
+        return {"answer": None, "explanation": "Location required for optimization", "inputs": {"location": location}}
+    
+    # Get pending inbound trucks and outbound loads within horizon
+    now = datetime.utcnow(); horizon = now + timedelta(minutes=horizon_min)
+    conn=_conn(); cur=conn.cursor()
+    try:
+        # Get inbound trucks
+        inbound_rows = cur.execute("""
+            SELECT truck_id, eta_utc, unload_min, priority
+            FROM inbound_trucks
+            WHERE location = ? 
+              AND status IN ('scheduled', 'pending')
+              AND datetime(eta_utc) <= ?
+            ORDER BY datetime(eta_utc) ASC
+            LIMIT 50
+        """, (location, horizon.isoformat(sep=' '))).fetchall()
+        
+        # Get outbound loads
+        outbound_rows = cur.execute("""
+            SELECT load_id, cutoff_utc, load_min, priority
+            FROM outbound_loads
+            WHERE location = ?
+              AND status IN ('planned', 'pending')
+              AND datetime(cutoff_utc) >= ?
+            ORDER BY datetime(cutoff_utc) ASC
+            LIMIT 50
+        """, (location, now.isoformat(sep=' '))).fetchall()
+        
+        conn.close()
+        
+        # Build request list for solver
+        requests = []
+        for truck_id, eta_utc_str, unload_min, priority in inbound_rows:
+            eta_utc = datetime.fromisoformat(eta_utc_str.replace(' ', 'T'))
+            requests.append({
+                "id": truck_id,
+                "job_type": "inbound",
+                "location": location,
+                "earliest": eta_utc,
+                "deadline": eta_utc + timedelta(hours=2),  # 2 hour window
+                "duration_min": unload_min,
+                "priority": priority or 0
+            })
+        
+        for load_id, cutoff_utc_str, load_min, priority in outbound_rows:
+            cutoff_utc = datetime.fromisoformat(cutoff_utc_str.replace(' ', 'T'))
+            requests.append({
+                "id": load_id,
+                "job_type": "outbound",
+                "location": location,
+                "earliest": cutoff_utc - timedelta(minutes=load_min),
+                "deadline": cutoff_utc,
+                "duration_min": load_min,
+                "priority": priority or 0
+            })
+        
+        if not requests:
+            return {
+                "answer": None,
+                "explanation": f"No pending trucks/loads found at {location} within {horizon_min} minute horizon",
+                "inputs": {"location": location, "horizon_min": horizon_min}
+            }
+        
+        # Run solver optimization
+        decision = optimize_batch_and_commit(requests, location)
+        
+        # Format response
+        assignments = []
+        for prop in decision.accepted_proposals:
+            assignments.append({
+                "ref_id": prop.ref_id,
+                "job_type": prop.job_type,
+                "door_id": prop.door_id,
+                "start_utc": prop.start_utc.isoformat(),
+                "end_utc": prop.end_utc.isoformat(),
+                "local_cost": prop.local_cost,
+                "lateness_min": prop.lateness_min
+            })
+        
+        return {
+            "answer": {
+                "decision_id": decision.decision_id,
+                "assignments": assignments,
+                "confidence": decision.confidence,
+                "total_assigned": len(assignments),
+                "total_requested": len(requests)
+            },
+            "explanation": f"Optimized {len(assignments)}/{len(requests)} pending jobs using constraint solver",
+            "inputs": {"location": location, "horizon_min": horizon_min}
+        }
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return {
+            "answer": None,
+            "explanation": f"Optimization failed: {str(e)}",
+            "inputs": {"location": location, "horizon_min": horizon_min}
+        }
+
 
 def _extract_location_from_text(text: str) -> str:
     """Extract location from question text using pattern matching and DB lookup."""
@@ -677,6 +782,15 @@ def qa(req: QARequest):
         job_type = slots.get("job_type") or ""
         horizon_min = slots.get("horizon_min")
         out = handle_count_schedule(loc if loc else None, job_type if job_type else None, horizon_min)
+    elif intent == "optimize_schedule":
+        loc = slots.get("location","")
+        if not loc:
+            loc = _extract_location_from_text(req.question)
+        horizon_min = slots.get("horizon_min") or 240
+        if loc:
+            out = handle_optimize_schedule(loc, horizon_min)
+        else:
+            out = {"answer": None, "explanation": "Location required for optimization", "inputs": {}}
     else:
         # Re-ask LLM with a best-effort routing prompt, then call DB-backed handlers
         intent2, meta2, conf2 = llm_router.llm_route_best_effort(req.question)
@@ -701,8 +815,18 @@ def qa(req: QARequest):
             if loc_from_text and not slots2.get("location"):
                 slots2["location"] = loc_from_text
             
-            # Check for count queries first (before other patterns)
-            if re.search(r'\b(how many|count|number of|total|how much)\b', q.lower()):
+            # Check for optimization queries first (before other patterns)
+            if re.search(r'\b(optimize|optimise|reoptimize|re-optimize|batch.*assign|improve.*schedule)\b', q.lower()):
+                horizon_min = 300  # 5 hours default
+                time_match = re.search(r'(\d+)\s*(hour|hr)', q.lower())
+                if time_match:
+                    horizon_min = int(time_match.group(1)) * 60
+                if loc_from_text:
+                    out = handle_optimize_schedule(loc_from_text, horizon_min)
+                else:
+                    out = {"answer": None, "explanation": "Location required for optimization", "inputs": {}}
+            # Check for count queries
+            elif re.search(r'\b(how many|count|number of|total|how much)\b', q.lower()):
                 job_type_match = re.search(r'\b(inbound|outbound)\b', q.lower())
                 job_type = job_type_match.group(1) if job_type_match else None
                 out = handle_count_schedule(loc_from_text if loc_from_text else None, job_type, None)

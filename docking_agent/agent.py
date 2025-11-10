@@ -72,11 +72,11 @@ def decide_and_commit(proposals: list[Proposal]) -> Decision:
         if ok and conf >= 0.6:
             detail = {"local_cost": p.local_cost, "lateness_min": p.lateness_min}
             c.execute("""INSERT OR REPLACE INTO dock_assignments
-                (assignment_id, location, door_id, job_type, ref_id, start_utc, end_utc, crew, status, why_json)
-                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (assignment_id, location, door_id, job_type, ref_id, start_utc, end_utc, crew, status)
+                VALUES (?,?,?,?,?,?,?,?,?)""",
               (f"asg-{uuid.uuid4().hex[:8]}", p.location, p.door_id, p.job_type, p.ref_id,
                p.start_utc.isoformat(sep=' '), p.end_utc.isoformat(sep=' '),
-               p.feasibility.get("crew","auto"), "scheduled", json.dumps(detail)))
+               p.feasibility.get("crew","auto"), "scheduled"))
             _log_event(conn, p.location, p.door_id, p.job_type, p.ref_id,
                        "assigned", "heuristic_choice", detail)
             accepted.append(p)
@@ -114,11 +114,11 @@ def optimize_batch_and_commit(requests: list[dict], location: str) -> Decision:
         if ok:
             detail = {"local_cost": p.local_cost, "lateness_min": p.lateness_min}
             c.execute("""INSERT OR REPLACE INTO dock_assignments
-                (assignment_id, location, door_id, job_type, ref_id, start_utc, end_utc, crew, status, why_json)
-                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (assignment_id, location, door_id, job_type, ref_id, start_utc, end_utc, crew, status)
+                VALUES (?,?,?,?,?,?,?,?,?)""",
               (f"asg-{uuid.uuid4().hex[:8]}", p.location, p.door_id, p.job_type, p.ref_id,
                p.start_utc.isoformat(sep=' '), p.end_utc.isoformat(sep=' '),
-               p.feasibility.get("crew","auto"), "scheduled", json.dumps(detail)))
+               p.feasibility.get("crew","auto"), "scheduled"))
             _log_event(conn, p.location, p.door_id, p.job_type, p.ref_id, "assigned", "solver_choice", detail)
             accepted.append(p)
     conn.commit(); conn.close()

@@ -10,7 +10,8 @@ ALLOWED_INTENTS = [
   "earliest_eta_part",   # slots: part, location
   "why_reassigned",      # slots: door
   "door_schedule",       # slots: location
-  "count_schedule"       # slots: location, job_type, horizon_min
+  "count_schedule",      # slots: location, job_type, horizon_min
+  "optimize_schedule"    # slots: location, horizon_min
 ]
 
 # Intent-specific latency budgets (ms) - orchestrator can override
@@ -19,6 +20,7 @@ INTENT_LATENCY_BUDGETS = {
   "door_schedule": 400,        # Moderate complexity
   "count_schedule": 250,       # Simple aggregation
   "why_reassigned": 600,       # Complex causal analysis
+  "optimize_schedule": 2000,   # Solver optimization (expensive)
   "unknown": 200               # Quick rejection
 }
 
@@ -99,6 +101,7 @@ Available Intents:
 - door_schedule: What's happening at docks/schedule? (slots: location?)
 - why_reassigned: Why did something happen/change? (slots: door? [number like "4" or code like "FCX-D04"])
 - count_schedule: How many items/assignments? (slots: location?, job_type? [inbound|outbound|all], horizon_min? [int])
+- optimize_schedule: Optimize/reoptimize dock assignments (slots: location, horizon_min? [int, default 240])
 
 Schema: {schema}
 
@@ -111,6 +114,7 @@ ENTITY EXTRACTION RULES:
 - 'horizon_min': Time window in minutes (default: 480 for 8 hours)
 
 INTENT SELECTION LOGIC:
+- Keywords "optimize", "reoptimize", "improve", "batch assign" → optimize_schedule
 - Keywords "why", "reason", "cause", "reassigned", "changed" → why_reassigned
 - Keywords "how many", "count", "number of", "total" → count_schedule
 - Keywords "earliest", "eta", "arrival", "when will", "next" → earliest_eta_part
@@ -333,7 +337,7 @@ def llm_route_best_effort(question: str, context: Dict[str, Any] = None) -> Tupl
         reasoning = parsed.get("reasoning", "")
         dt_ms  = int((time.time()-t0)*1000)
         # Ensure a valid intent is always returned
-        if intent not in ("earliest_eta_part","why_reassigned","door_schedule","count_schedule"):
+        if intent not in ("earliest_eta_part","why_reassigned","door_schedule","count_schedule","optimize_schedule"):
             intent = "door_schedule"
         
         budget = INTENT_LATENCY_BUDGETS.get(intent, BUDGET_MS)
