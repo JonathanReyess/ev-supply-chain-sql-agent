@@ -1,0 +1,53 @@
+{
+  "error_taxonomy": {
+    "syntax": {
+      "sql_syntax_error": "SQL syntax is invalid or malformed",
+      "invalid_alias": "Table or column alias is incorrectly defined"
+    },
+    "schema_link": {
+      "table_missing": "Required table is not included in the query",
+      "col_missing": "Required column is missing from SELECT or WHERE clause",
+      "ambiguous_col": "Column name is ambiguous (exists in multiple tables without table qualifier)",
+      "incorrect_foreign_key": "Foreign key relationship is not properly used in JOIN"
+    },
+    "join": {
+      "join_missing": "Required JOIN is missing to connect tables",
+      "join_wrong_type": "Wrong JOIN type used (INNER vs LEFT vs RIGHT)",
+      "extra_table": "Unnecessary table included in FROM/JOIN clause",
+      "incorrect_col": "Wrong column used in JOIN ON condition"
+    },
+    "filter": {
+      "where_missing": "WHERE clause is missing when filtering is required",
+      "condition_wrong_col": "Wrong column used in WHERE condition",
+      "condition_type_mismatch": "Data type mismatch in WHERE condition (e.g., string vs number)"
+    },
+    "aggregation": {
+      "agg_no_groupby": "Aggregate function used without GROUP BY",
+      "groupby_missing_col": "Column in SELECT not included in GROUP BY",
+      "having_without_groupby": "HAVING clause used without GROUP BY",
+      "having_incorrect": "HAVING clause has incorrect condition",
+      "having_vs_where": "HAVING used instead of WHERE or vice versa"
+    },
+    "value": {
+      "hardcoded_value": "Value is hardcoded instead of using parameter or column",
+      "value_format_wrong": "Value format is incorrect (e.g., date format, string quotes)"
+    },
+    "subquery": {
+      "unused_subquery": "Subquery is defined but not used",
+      "subquery_missing": "Required subquery is missing",
+      "subquery_correlation_error": "Correlated subquery has incorrect correlation"
+    },
+    "set_operations": {
+      "union_missing": "UNION operation is missing when combining results",
+      "intersect_missing": "INTERSECT operation needed but not used",
+      "except_missing": "EXCEPT/MINUS operation needed but not used"
+    },
+    "other": {
+      "order_by_missing": "ORDER BY is missing when sorting is required",
+      "limit_missing": "LIMIT clause is missing when top N results needed",
+      "duplicate_select": "Column is duplicated in SELECT clause",
+      "unsupported_function": "SQL function is not supported by the database",
+      "extra_values_selected": "More columns selected than needed"
+    }
+  }
+}

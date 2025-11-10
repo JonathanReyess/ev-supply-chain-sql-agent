@@ -1,0 +1,43 @@
+# --------------------
+# 1. DEPENDENCIES
+# --------------------
+/node_modules
+# Ignore npm debug log
+npm-debug.log*
+yarn-debug.log*
+.pnpm-debug.log*
+
+# --------------------
+# 2. COMPILED OUTPUT
+# --------------------
+# Compiled JavaScript files (the output of `npm run build`)
+/dist
+/build
+
+# --------------------
+# 3. ENVIRONMENT & SECRETS
+# CRITICAL: DO NOT COMMIT API KEYS OR PASSWORDS
+# --------------------
+# Local environment variables containing API keys (GEMINI_API_KEY)
+.env
+.env.local
+.env.*.local
+
+# --------------------
+# 4. DATA & DATABASE
+# --------------------
+# Your local database file (it's large and contains private data)
+/data/ev_supply_chain.db
+
+# Any temporary or intermediate data files
+*.sqlite
+*.duckdb
+
+# --------------------
+# 5. OS & IDE
+# --------------------
+# macOS system files
+.DS_Store
+
+# VS Code directory (user-specific settings)
+.vscode/
