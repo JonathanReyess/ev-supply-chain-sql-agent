@@ -9,6 +9,9 @@
     "start": "node dist/agent.js",
     "dev": "npx ts-node --esm src/agent.ts",
     "api": "npx tsx src/api.ts",
+    "api:summary": "npx tsx src/api.ts",
+    "api:embeddings": "npx tsx src/api-embeddings.ts",
+    "test:conversation": "npx tsx src/test/compare-conversation-methods.ts",
     "frontend": "npx http-server frontend -p 3000 -c-1 --cors",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
