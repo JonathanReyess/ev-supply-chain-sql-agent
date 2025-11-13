@@ -84,36 +84,17 @@ export async function getCompleteSchema(dbPath: string): Promise<any> {
                   return;
                 }
 
-                const columnSchemas = columns.map((col: any) => ({
-                  name: col.column_name,
-                  type: col.column_type,
-                  nullable: col.null === 'YES',
-                  primary_key: col.column_name.toLowerCase().includes('id') && columns.indexOf(col) === 0,
-                  sample_values: [] as any[],
-                }));
-
                 schema.tables[tableName] = {
-                  columns: columnSchemas,
+                  columns: columns.map((col: any) => ({
+                    // Note: DuckDB's DESCRIBE output is used directly here
+                    name: col.column_name,
+                    type: col.column_type,
+                    nullable: col.null === 'YES',
+                    primary_key: col.column_name.toLowerCase().includes('id') && columns.indexOf(col) === 0, // Original Heuristic
+                  })),
                 };
 
-                // 3. Fetch sample values for string/text columns (helps LLM understand exact formats)
-                const samplePromises = columnSchemas
-                  .filter(col => col.type.toLowerCase().includes('varchar') || col.type.toLowerCase().includes('text'))
-                  .map((col) => {
-                    return new Promise<void>((resolveSample) => {
-                      db.all(
-                        `SELECT DISTINCT "${col.name}" FROM ${ATTACH_ALIAS}.${tableName} WHERE "${col.name}" IS NOT NULL LIMIT 5;`,
-                        (err, samples: any[]) => {
-                          if (!err && samples && samples.length > 0) {
-                            col.sample_values = samples.map(s => s[col.name]).filter(v => v != null);
-                          }
-                          resolveSample();
-                        }
-                      );
-                    });
-                  });
-
-                Promise.all(samplePromises).then(() => resolveTable());
+                resolveTable();
               });
             });
           });
@@ -159,14 +140,7 @@ export function formatSchemaForPrompt(schema: any): string {
     for (const col of tableInfo.columns) {
       const pkMarker = col.primary_key ? ' [PRIMARY KEY]' : '';
       const nullMarker = col.nullable ? '' : ' NOT NULL';
-      let sampleValues = '';
-      
-      // Add sample values if available
-      if (col.sample_values && col.sample_values.length > 0) {
-        sampleValues = ` (e.g., ${col.sample_values.slice(0, 3).map((v: any) => `"${v}"`).join(', ')})`;
-      }
-      
-      output += `  - ${col.name}: ${col.type}${pkMarker}${nullMarker}${sampleValues}\n`;
+      output += `  - ${col.name}: ${col.type}${pkMarker}${nullMarker}\n`;
     }
 
     output += '\n';

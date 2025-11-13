@@ -1,23 +1,30 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
+    "compilerOptions": {
+      // 1. Module System: Use NodeNext (or Node16) to enable modern import/export syntax and features like 'import.meta'
+      "module": "NodeNext",
+      
+      // 2. Module Resolution: Necessary for NodeNext/ESM resolution logic
+      "moduleResolution": "NodeNext",
+      
+      // 3. Target JavaScript Version: Compile to a recent version of JavaScript
+      "target": "ES2022",
+      
+      // 4. Output Directory: Where the compiled JavaScript files (.js) will be placed
+      "outDir": "./dist",
+      
+      // 5. Source Directory: Root of your TypeScript files
+      "rootDir": "./src",
+      
+      // 6. Interop: Essential for compatibility between CJS modules (like many Node libraries) and your ESM code
+      "esModuleInterop": true,
+      "allowSyntheticDefaultImports": true,
+      
+      // 7. Strictness and Quality of Life
+      "forceConsistentCasingInFileNames": true,
+      "strict": true,
+      "skipLibCheck": true 
+    },
     
-    // CRITICAL FIX: Use NodeNext for module and moduleResolution 
-    // This tells TypeScript to emit runnable code for a Node.js ESM project (type: "module")
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    
-    "lib": ["ES2022"], // Only include Node libraries, DOM is not needed for a backend agent
-    "outDir": "./dist",
-    "rootDir": "./src",
-    
-    // Standard and best practice options
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules"]
-}
+    // 8. Include: Tells the compiler where to look for TypeScript files
+    "include": ["src/**/*"]
+  }

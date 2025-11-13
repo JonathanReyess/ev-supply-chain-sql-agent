@@ -3,7 +3,8 @@
  * Using GEMINI 2.5 Flash with agentic tool-calling loop
  */
 
-import { GoogleGenAI } from '@google/genai';
+// FIX 1: Import Type along with GoogleGenAI
+import { GoogleGenAI, Schema, Type } from '@google/genai';
 import * as dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -22,6 +23,19 @@ const DB_PATH = join(process.cwd(), 'data', 'ev_supply_chain.db');
 const ERROR_TAXONOMY_PATH = join(__dirname, '../data/error-taxonomy.json');
 const MAX_AGENT_ITERATIONS = 15; // Maximum loops to prevent infinite execution
 const MAX_CORRECTION_ATTEMPTS = 3;
+
+// --- NEW CONSTANTS FOR RATE LIMITING ---
+const BASE_RETRY_DELAY_MS = 1000; // 1 second base delay
+const MAX_RETRY_DELAY_MS = 60000; // Maximum delay (1 minute)
+
+/**
+ * Helper function to introduce a delay.
+ * @param ms The number of milliseconds to wait.
+ */
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+// ----------------------------------------
 
 // Initialize GoogleGenAI
 const ai = new GoogleGenAI({});
@@ -117,7 +131,7 @@ async function toolLoadSchema(state: AgentState): Promise<string> {
 }
 
 /**
- * Tool 2: Schema Linking (FIXED for robustness)
+ * Tool 2: Schema Linking 
  */
 async function toolSchemaLinking(state: AgentState): Promise<string> {
   console.log('\n🔗 [Tool: Schema Linking] Analyzing question for relevant schema elements...');
@@ -154,7 +168,7 @@ Analyze the question and identify the relevant tables, columns, and relationship
 }
 
 /**
- * Tool 3: KPI Decomposition (FIXED for robustness)
+ * Tool 3: KPI Decomposition 
  */
 async function toolKPIDecomposition(state: AgentState): Promise<string> {
   console.log('\n📊 [Tool: KPI Decomposition] Breaking down KPI metrics...');
@@ -193,7 +207,7 @@ Analyze the question and break down the KPI into its core components. Return ONL
 }
 
 /**
- * Tool 4: Subproblem Identification (FIXED)
+ * Tool 4: Subproblem Identification 
  */
 async function toolSubproblemIdentification(state: AgentState): Promise<string> {
   console.log('\n🧩 [Tool: Subproblem Identification] Breaking down query...');
@@ -211,22 +225,23 @@ Relevant tables: ${state.linkedSchema.tables.join(', ')}
 Identify which SQL clauses are needed and what each should accomplish. Return the JSON object describing the clauses.`;
   // 👆 END FIX
 
-  const subproblemSchema = {
-    type: "OBJECT",
+  // FIX 2: Use the imported Type enum for schema definition
+  const subproblemSchema: Schema = {
+    type: Type.OBJECT,
     description: "A decomposition of the natural language question into SQL clauses.",
     properties: {
       clauses: {
-        type: "OBJECT",
+        type: Type.OBJECT,
         description: "A dictionary where keys are SQL clauses and values are descriptions.",
         properties: {
-          "SELECT": { type: "STRING" },
-          "FROM": { type: "STRING" },
-          "JOIN": { type: "STRING" },
-          "WHERE": { type: "STRING" },
-          "GROUP BY": { type: "STRING" },
-          "HAVING": { type: "STRING" },
-          "ORDER BY": { type: "STRING" },
-          "LIMIT": { type: "STRING" },
+          "SELECT": { type: Type.STRING },
+          "FROM": { type: Type.STRING },
+          "JOIN": { type: Type.STRING },
+          "WHERE": { type: Type.STRING },
+          "GROUP BY": { type: Type.STRING },
+          "HAVING": { type: Type.STRING },
+          "ORDER BY": { type: Type.STRING },
+          "LIMIT": { type: Type.STRING },
         },
       }
     },
@@ -261,7 +276,7 @@ Identify which SQL clauses are needed and what each should accomplish. Return th
 }
 
 /**
- * Tool 5: Query Planning (FIXED for robustness)
+ * Tool 5: Query Planning 
  */
 async function toolQueryPlanning(state: AgentState): Promise<string> {
   console.log('\n🤔 [Tool: Query Planning] Generating execution plan...');
@@ -389,7 +404,7 @@ async function toolExecuteSQL(state: AgentState): Promise<string> {
 }
 
 /**
- * Tool 8: Error Correction (Correction Plan step FIXED for robustness)
+ * Tool 8: Error Correction 
  */
 async function toolErrorCorrection(state: AgentState): Promise<string> {
   console.log('\n🔧 [Tool: Error Correction] Analyzing and fixing error...');
@@ -564,34 +579,6 @@ const TOOL_DESCRIPTIONS = {
 // DEBUG: STATE LOGGING HELPER (Optional - kept for context)
 // ----------------------------------------------------------------------
 
-/**
- * Helper function to log a summary of the current agent state.
- */
-function logStateSummary(state: AgentState, phase: 'BEFORE ACTION' | 'AFTER TOOL EXECUTION', iteration: number, toolName?: string) {
-  const visualState = {
-    'Phase': phase,
-    'Iteration': iteration,
-    'Question': state.question.substring(0, 50) + '...',
-    'Schema Loaded': !!state.schema,
-    'Schema Linked': !!state.linkedSchema,
-    'KPI Decomposed': !!state.kpiDecomposition,
-    'Subproblems': !!state.subproblems,
-    'Query Plan': !!state.queryPlan,
-    'Current SQL': state.currentSQL ? state.currentSQL.substring(0, 30) + '...' : 'N/A',
-    'SQL Success': state.executionResult?.success === true ? 'Yes' : (state.executionResult?.success === false ? 'No' : 'N/A'),
-    'Correction Attempts': `${state.correctionAttempts}/${MAX_CORRECTION_ATTEMPTS}`,
-    'Final Answer': !!state.finalAnswer,
-    'Completed': state.completed,
-    'Last Tool': toolName || 'Orchestrator Decision'
-  };
-
-  console.log(`\n${'='.repeat(20)} ${phase} - State Snapshot ${'='.repeat(20)}`);
-  for (const [key, value] of Object.entries(visualState)) {
-    console.log(`  ${key.padEnd(25)}: ${value}`);
-  }
-  console.log('='.repeat(69));
-}
-
 // ----------------------------------------------------------------------
 // LOOPING ORCHESTRATOR AGENT
 // ----------------------------------------------------------------------
@@ -607,6 +594,10 @@ async function orchestratorAgent(question: string): Promise<void> {
 
   const state = createInitialState(question);
   let iteration = 0;
+  // --- NEW: Add a counter for consecutive API failures ---
+  let consecutiveApiFailures = 0;
+  // --------------------------------------------------------
+
 
   // System prompt for the orchestrator (defines the agent's identity and rules)
   const systemPrompt = `You are an intelligent data analyst orchestrator agent. Your goal is to answer the user's question about data in a database.
@@ -648,6 +639,23 @@ Choose your next action. Respond with either:
     console.log(`🔄 Iteration ${iteration}/${MAX_AGENT_ITERATIONS}`);
     console.log(`${'─'.repeat(80)}`);
 
+    // --- NEW: Implement Exponential Backoff Delay Logic ---
+    if (consecutiveApiFailures > 0) {
+      // Calculate delay: Base * 2^R, clamped by max delay
+      let delay = Math.min(
+        BASE_RETRY_DELAY_MS * Math.pow(2, consecutiveApiFailures - 1),
+        MAX_RETRY_DELAY_MS
+      );
+      
+      // Add "Jitter" (up to 20% of delay)
+      const jitter = Math.random() * delay * 0.2;
+      delay += jitter;
+
+      console.log(`\n⏸️ API Error detected. Waiting for ${Math.round(delay / 1000)}s before retrying...`);
+      await sleep(delay);
+    }
+    // --------------------------------------------------------
+
     // Build conversation history (short-term memory)
     const conversationContext = state.conversationHistory.length > 0
       ? `\n\nPrevious actions:\n${state.conversationHistory.map(h => `${h.role}: ${h.content}`).join('\n')}`
@@ -661,15 +669,43 @@ Choose your next action. Respond with either:
     console.log('<<<' + '='.repeat(78) + '>>>\n');
     // 🐛 END DEBUG BLOCK
 
-    // Call the orchestrator agent (the core LLM decision)
-    const response = await ai.models.generateContent({
-      model: MODEL,
-      contents: promptForAgent,
-      config: {
-        temperature: 0.3, // Lower temperature for more deterministic tool selection
-      },
-    });
-
+    let response;
+    try {
+        // Call the orchestrator agent (the core LLM decision)
+        response = await ai.models.generateContent({
+            model: MODEL,
+            contents: promptForAgent,
+            config: {
+                temperature: 0.3, // Lower temperature for more deterministic tool selection
+            },
+        });
+        
+        // --- NEW: Reset failure counter on successful LLM call ---
+        consecutiveApiFailures = 0;
+        // --------------------------------------------------------
+    } catch (error) {
+        // --- NEW: Catch API errors directly from the decision call ---
+        const errorString = String(error);
+        if (errorString.includes('429') || errorString.includes('503')) {
+            consecutiveApiFailures++;
+            console.error(`\n🚨 Rate Limit/Service Unavailable Error: ${errorString.split('\n')[0].trim()}`);
+            
+            // Log the error into history so the agent sees it
+            state.conversationHistory.push({
+                role: 'system',
+                content: `LLM API failed with Quota/Service Error. Retrying.`,
+            });
+            
+            // Skip the rest of the loop for this iteration to retry the decision.
+            continue;
+        } else {
+            // Handle other, unexpected errors
+            console.error('\n🚨 Unrecoverable Error during agent decision:', error);
+            state.completed = true;
+            return;
+        }
+    }
+    
     const agentDecision = response.text?.trim() || '';
     console.log('\n🤖 Agent Decision:', agentDecision);
 
@@ -713,6 +749,14 @@ Choose your next action. Respond with either:
             role: 'system',
             content: `Tool ${toolName} failed: ${error}`,
           });
+          
+          // --- NEW: Check if tool error is a 503/429. If so, increment failure counter.
+          // This ensures that even tool-specific LLM calls trigger the backoff.
+          const errorString = String(error);
+          if (errorString.includes('429') || errorString.includes('503')) {
+              consecutiveApiFailures++;
+          }
+          // ------------------------------------------------------------------------
         }
       } else {
         console.log(`\n⚠  Unknown tool: ${toolName}`);
@@ -753,7 +797,7 @@ Choose your next action. Respond with either:
 // ----------------------------------------------------------------------
 
 const DEMO_QUERIES = [
-  'List the names and contact emails of all suppliers with a reliability score above 90.',
+  'Why is our battery component inventory at Fremont CA expected to be below the safety stock level next week?',
   'What is the total quantity in stock for components with the Type "Battery", grouped by their WarehouseLocation?',
   'Show me the average unit cost of all components ordered in Purchase Orders that were ultimately marked as "Delayed", excluding those manufactured in China.',
   'What is the average order to deliver time per warehouse across all battery components?',
