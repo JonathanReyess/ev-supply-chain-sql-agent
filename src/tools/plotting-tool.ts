@@ -5,7 +5,9 @@
  */
 
 import { z } from 'zod';
+// @ts-ignore - chart.js types may not be available
 import { Chart, ChartConfiguration, registerables } from 'chart.js';
+// @ts-ignore - canvas types may not be available
 import { createCanvas } from 'canvas';
 import * as fs from 'fs';
 import * as path from 'path';

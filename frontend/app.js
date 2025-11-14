@@ -1,14 +1,16 @@
 // Configuration
 const API_ENDPOINTS = {
-    'sql-of-thought': 'http://localhost:8000/query',
+    'sql-of-thought-summary': 'http://localhost:8000/query',
+    'sql-of-thought-embeddings': 'http://localhost:8001/query',
     'docking-agent': 'http://localhost:8088/qa'
 };
 
 // State
-let currentAgent = 'sql-of-thought';
+let currentAgent = 'sql-of-thought-summary';
 let conversationHistory = [];
 let sessionTokens = {
-    'sql-of-thought': { totalPromptTokens: 0, totalCompletionTokens: 0, totalTokens: 0 },
+    'sql-of-thought-summary': { totalPromptTokens: 0, totalCompletionTokens: 0, totalTokens: 0 },
+    'sql-of-thought-embeddings': { totalPromptTokens: 0, totalCompletionTokens: 0, totalTokens: 0 },
     'docking-agent': { totalPromptTokens: 0, totalCompletionTokens: 0, totalTokens: 0 }
 };
 
@@ -70,8 +72,9 @@ document.querySelectorAll('.prompt-card').forEach(card => {
             agentSelect.value = 'docking-agent';
             currentAgent = 'docking-agent';
         } else {
-            agentSelect.value = 'sql-of-thought';
-            currentAgent = 'sql-of-thought';
+            // Default to summary version for SQL questions
+            agentSelect.value = 'sql-of-thought-summary';
+            currentAgent = 'sql-of-thought-summary';
         }
         updateAgentLabel();
         sendMessage();
@@ -81,7 +84,8 @@ document.querySelectorAll('.prompt-card').forEach(card => {
 // Functions
 function updateAgentLabel() {
     const agentNames = {
-        'sql-of-thought': 'SQL-of-Thought',
+        'sql-of-thought-summary': 'SQL-of-Thought (Summary)',
+        'sql-of-thought-embeddings': 'SQL-of-Thought (Embeddings)',
         'docking-agent': 'Docking Agent'
     };
     currentAgentLabel.textContent = agentNames[currentAgent];
@@ -159,7 +163,7 @@ async function sendMessage() {
 async function queryAgent(agent, question) {
     const endpoint = API_ENDPOINTS[agent];
     
-    // Prepare conversation history (only relevant parts) for SQL-of-Thought
+    // Prepare conversation history (only relevant parts) for SQL-of-Thought agents
     const historyForAgent = conversationHistory
         .filter(turn => turn.agent === agent)
         .map(turn => ({ 
@@ -170,9 +174,8 @@ async function queryAgent(agent, question) {
             keyMetric: turn.keyMetric
         }));
 
-    if (agent === 'sql-of-thought') {
-        console.log('[DEBUG] Sending history to API:', historyForAgent.length, 'turns');
-        console.log('[DEBUG] First turn metadata:', historyForAgent[0]);
+    if (agent === 'sql-of-thought-summary') {
+        console.log('[DEBUG] Sending history to Summary API:', historyForAgent.length, 'turns');
         
         const response = await fetch(endpoint, {
             method: 'POST',
@@ -182,6 +185,25 @@ async function queryAgent(agent, question) {
             body: JSON.stringify({ 
                 question,
                 conversation_history: historyForAgent
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        return await response.json();
+    } else if (agent === 'sql-of-thought-embeddings') {
+        console.log('[DEBUG] Sending to Embeddings API:', historyForAgent.length, 'previous turns');
+        
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+                question,
+                conversation_id: 'default' // Could be session-specific in production
             })
         });
 
@@ -210,8 +232,16 @@ async function queryAgent(agent, question) {
 }
 
 function formatResponse(response, agent) {
-    if (agent === 'sql-of-thought') {
+    if (agent === 'sql-of-thought-summary' || agent === 'sql-of-thought-embeddings') {
         let html = '';
+        
+        // Show final answer from orchestrator if available
+        if (response.finalAnswer) {
+            html += `<div class="final-answer">
+                <strong>💡 Answer:</strong>
+                <p>${escapeHtml(response.finalAnswer)}</p>
+            </div>`;
+        }
         
         if (response.sql) {
             html += `<div class="sql-query">
@@ -227,6 +257,24 @@ function formatResponse(response, agent) {
             </div>`;
         } else if (response.success && response.row_count === 0) {
             html += '<p>Query executed successfully but returned no results.</p>';
+        }
+        
+        // Display visualization if generated
+        if (response.visualization) {
+            const viz = response.visualization;
+            // Get the API server base URL for this agent
+            const apiBaseUrl = agent === 'sql-of-thought-summary' 
+                ? 'http://localhost:8000' 
+                : 'http://localhost:8001';
+            // The plot_file_path is like "plots/filename.png", so we can use it directly
+            const plotUrl = `${apiBaseUrl}/${viz.plot_file_path}`;
+            
+            html += `<div class="visualization">
+                <strong>📊 Visualization:</strong>
+                <p><em>${escapeHtml(viz.plot_description || 'Chart generated')}</em></p>
+                <img src="${plotUrl}" alt="${escapeHtml(viz.plot_description || 'Chart')}" style="max-width: 100%; height: auto; margin-top: 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                <p style="display:none; color: #888;">⚠️ Visualization image could not be loaded</p>
+            </div>`;
         }
         
         // Display conversation summary (if active)
@@ -273,10 +321,12 @@ function formatResponse(response, agent) {
             html += '<details class="token-details">';
             html += '<summary>Show Per-Agent Breakdown</summary>';
             html += '<table class="token-table">';
-            html += '<tr><th>Agent</th><th>Prompt Tokens</th><th>Completion Tokens</th><th>Total</th></tr>';
+            html += '<tr><th>Tool/Agent</th><th>Prompt Tokens</th><th>Completion Tokens</th><th>Total</th></tr>';
             tokenUsage.perAgent.forEach(agentUsage => {
+                // Handle both formats: orchestrator uses 'tool', old APIs use 'agent'
+                const name = (agentUsage.tool || agentUsage.agent || 'unknown').replace(/_/g, ' ');
                 html += `<tr>`;
-                html += `<td>${agentUsage.agent.replace(/_/g, ' ')}</td>`;
+                html += `<td>${name}</td>`;
                 html += `<td>${agentUsage.promptTokens}</td>`;
                 html += `<td>${agentUsage.completionTokens}</td>`;
                 html += `<td><strong>${agentUsage.totalTokens}</strong></td>`;
@@ -285,6 +335,11 @@ function formatResponse(response, agent) {
             html += '</table>';
             html += '</details>';
             html += '</div>';
+        }
+        
+        // Display orchestrator iterations if available
+        if (response.iterations !== undefined) {
+            html += `<p class="metadata"><em>🔄 Orchestrator iterations: ${response.iterations}</em></p>`;
         }
         
         // Display detailed timing breakdown
@@ -319,6 +374,8 @@ function formatResponse(response, agent) {
             
             if (response.timings.total_pipeline_ms !== undefined) {
                 html += `<tr class="timing-total"><td><strong>Total:</strong></td><td><strong>${response.timings.total_pipeline_ms}ms</strong></td></tr>`;
+            } else if (response.timings.total_ms !== undefined) {
+                html += `<tr class="timing-total"><td><strong>Total:</strong></td><td><strong>${response.timings.total_ms}ms</strong></td></tr>`;
             }
             
             html += '</table>';

@@ -10,8 +10,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 import { GoogleGenAI } from '@google/genai';
-import { getCompleteSchema, formatSchemaForPrompt } from './tools/schema-tool.js';
-import { executeSQL } from './tools/sql-executor-tool.js';
+import { runOrchestrator, OrchestratorResult } from './agent.js';
 
 dotenv.config();
 
@@ -24,6 +23,8 @@ const PORT = process.env.API_PORT || 8000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+// Serve plots as static files
+app.use('/plots', express.static(join(process.cwd(), 'plots')));
 
 // Configuration
 const DB_PATH = join(process.cwd(), 'data', 'ev_supply_chain.db');
@@ -492,276 +493,7 @@ Extract all components accurately. Return ONLY valid JSON.`;
 // END OPTION B
 // ============================================================================
 
-// Agent functions (same as in agent.ts)
-async function schemaLinkingAgent(question: string, schema: any, conversationHistory: any[] = []): Promise<any> {
-  // Optional prompt-based history context (last 3 turns)
-  let conversationContext = '';
-  if (conversationHistory && conversationHistory.length > 0) {
-    conversationContext = '\n## Conversation History (for context)\n\n';
-    const recentHistory = conversationHistory.slice(-3);
-    recentHistory.forEach((turn, idx) => {
-      conversationContext += `Turn ${idx + 1}:\n`;
-      conversationContext += `Q: "${turn.question}"\n`;
-      if (turn.sql) {
-        conversationContext += `SQL Generated: ${turn.sql}\n`;
-      }
-      conversationContext += '\n';
-    });
-    conversationContext += `IMPORTANT: If the current question references previous results ("those", "them", "these", "it"), carry forward the same WHERE filters used in the most recent query.\n`;
-  }
-
-  const prompt = `${readFileSync(join(__dirname, 'prompts/schema-linking.md'), 'utf-8')}
-
-## Database Schema
-
-${formatSchemaForPrompt(schema)}
-${conversationContext}
-
-## Question
-
-"${question}"
-
-Analyze the question and identify the relevant tables, columns, and relationships needed. Return ONLY a valid JSON object as specified in the output format.`;
-
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: {
-      temperature: TEMPERATURE,
-      responseMimeType: 'application/json',
-    },
-  });
-
-  const result = JSON.parse(response.text || '{}');
-  const tokenUsage = {
-    promptTokens: response.usageMetadata?.promptTokenCount || 0,
-    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-    totalTokens: response.usageMetadata?.totalTokenCount || 0,
-  };
-
-  return { result, tokenUsage };
-}
-
-async function subproblemAgent(question: string, linkedSchema: any): Promise<any> {
-  const prompt = `You are a SQL query decomposition expert. Given a natural language question, break it down into SQL clause-level subproblems.
-
-Question: "${question}"
-
-Relevant tables: ${linkedSchema.tables.join(', ')}
-Relevant columns: ${JSON.stringify(linkedSchema.columns)}
-
-Identify which SQL clauses are needed and what each should accomplish. Return a JSON object with:
-
-Only include clauses that are needed. Return ONLY valid JSON.`;
-
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: {
-      temperature: TEMPERATURE,
-      responseMimeType: 'application/json',
-    },
-  });
-
-  const result = JSON.parse(response.text || '{}');
-  const tokenUsage = {
-    promptTokens: response.usageMetadata?.promptTokenCount || 0,
-    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-    totalTokens: response.usageMetadata?.totalTokenCount || 0,
-  };
-
-  return { result, tokenUsage };
-}
-
-async function queryPlanAgent(question: string, linkedSchema: any, subproblems: any, conversationHistory: any[] = []): Promise<any> {
-  let historyContext = '';
-  if (conversationHistory && conversationHistory.length > 0) {
-    const lastQuery = conversationHistory[conversationHistory.length - 1];
-    if (lastQuery.sql) {
-      historyContext = `\n## Previous Query Context\nLast SQL: ${lastQuery.sql}\nIf the current question uses references like "those"/"them"/"it", these refer to the filtered subset from the last query.\n\n`;
-    }
-  }
-
-  const prompt = `${readFileSync(join(__dirname, 'prompts/query-planning.md'), 'utf-8')}
-${historyContext}
-
-## Question
-"${question}"
-
-## Schema Information
-Tables: ${linkedSchema.tables.join(', ')}
-Columns: ${JSON.stringify(linkedSchema.columns, null, 2)}
-Foreign Keys: ${JSON.stringify(linkedSchema.foreign_keys, null, 2)}
-
-## Identified Clauses
-${JSON.stringify(subproblems.clauses, null, 2)}
-
-Create a detailed step-by-step query plan using Chain-of-Thought reasoning. Return ONLY valid JSON as specified.`;
-
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: {
-      temperature: TEMPERATURE,
-      responseMimeType: 'application/json',
-    },
-  });
-
-  const result = JSON.parse(response.text || '{}');
-  const tokenUsage = {
-    promptTokens: response.usageMetadata?.promptTokenCount || 0,
-    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-    totalTokens: response.usageMetadata?.totalTokenCount || 0,
-  };
-
-  return { result, tokenUsage };
-}
-
-async function sqlGenerationAgent(question: string, queryPlan: any, linkedSchema: any, conversationHistory: any[] = []): Promise<any> {
-  let historyContext = '';
-  if (conversationHistory && conversationHistory.length > 0) {
-    const lastQuery = conversationHistory[conversationHistory.length - 1];
-    if (lastQuery.sql) {
-      historyContext = `\nPrevious SQL Query:\n${lastQuery.sql}\n\nIf the current question references previous results ("those", "them", "it", "these"), carry forward the WHERE filters from the previous query.\n\n`;
-    }
-  }
-
-  const prompt = `You are an expert SQL query generator. Given a query plan, generate the exact SQL query.
-
-CRITICAL RULE: For ALL string comparisons in WHERE clauses, you MUST use LOWER() on BOTH sides.
-Example: WHERE LOWER(type) = LOWER('battery')  NOT  WHERE type = 'battery'
-
-${historyContext}
-
-## Guidelines
-
-- Use exact names: Column and table names must match the schema exactly (case-sensitive)
-- ALWAYS wrap string values in WHERE clauses with LOWER() for case-insensitive matching
-
-Question: "${question}"
-
-Query Plan:
-${JSON.stringify(queryPlan, null, 2)}
-
-Schema:
-${JSON.stringify(linkedSchema, null, 2)}
-
-Generate the SQL query that implements this plan. Return ONLY the SQL query, no explanations or markdown. The query should be executable and syntactically correct.`;
-
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: {
-      temperature: TEMPERATURE,
-    },
-  });
-
-  const sql = response.text?.trim() || '';
-  const cleanedSQL = sql
-    .replace(/```sql\n?/g, '')
-    .replace(/```\n?/g, '')
-    .trim();
-
-  const tokenUsage = {
-    promptTokens: response.usageMetadata?.promptTokenCount || 0,
-    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-    totalTokens: response.usageMetadata?.totalTokenCount || 0,
-  };
-
-  return { sql: cleanedSQL, tokenUsage };
-}
-
-async function correctionPlanAgent(
-  question: string,
-  incorrectSQL: string,
-  error: string,
-  linkedSchema: any
-): Promise<any> {
-  const prompt = `${readFileSync(join(__dirname, 'prompts/error-correction.md'), 'utf-8')}
-
-## Error Taxonomy
-${JSON.stringify(errorTaxonomy, null, 2)}
-
-## Question
-"${question}"
-
-## Failed SQL Query
-\`\`\`sql
-${incorrectSQL}
-\`\`\`
-
-## Error Message
-${error}
-
-## Schema
-${JSON.stringify(linkedSchema, null, 2)}
-
-Analyze this error using the taxonomy and provide a structured correction plan. Return ONLY valid JSON as specified.`;
-
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: {
-      temperature: TEMPERATURE,
-      responseMimeType: 'application/json',
-    },
-  });
-
-  const result = JSON.parse(response.text || '{}');
-  const tokenUsage = {
-    promptTokens: response.usageMetadata?.promptTokenCount || 0,
-    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-    totalTokens: response.usageMetadata?.totalTokenCount || 0,
-  };
-
-  return { result, tokenUsage };
-}
-
-async function correctionSQLAgent(
-  question: string,
-  incorrectSQL: string,
-  correctionPlan: any,
-  linkedSchema: any
-): Promise<any> {
-  const prompt = `You are an expert SQL query corrector. Fix the SQL query based on the correction plan.
-
-Question: "${question}"
-
-Incorrect SQL:
-\`\`\`sql
-${incorrectSQL}
-\`\`\`
-
-Correction Plan:
-${JSON.stringify(correctionPlan, null, 2)}
-
-Schema:
-${JSON.stringify(linkedSchema, null, 2)}
-
-Generate the corrected SQL query that addresses all issues identified in the correction plan. Return ONLY the corrected SQL query, no explanations.`;
-
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: {
-      temperature: TEMPERATURE,
-    },
-  });
-
-  const sql = response.text?.trim() || '';
-  const cleanedSQL = sql
-    .replace(/```sql\n?/g, '')
-    .replace(/```\n?/g, '')
-    .trim();
-
-  const tokenUsage = {
-    promptTokens: response.usageMetadata?.promptTokenCount || 0,
-    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-    totalTokens: response.usageMetadata?.totalTokenCount || 0,
-  };
-
-  return { sql: cleanedSQL, tokenUsage };
-}
+// NOTE: Agent functions removed - now using orchestrator from agent.ts
 
 /**
  * Generate or update a conversation summary for context management
@@ -835,217 +567,77 @@ Return ONLY the summary text, no additional commentary.`;
 // Global summaryStorage (in production, this should be per-session in database or Redis)
 let conversationSummaryStorage: ConversationSummary | null = null;
 
-// Main SQL-of-Thought function
+// Main SQL-of-Thought function using orchestrator
 async function sqlOfThought(question: string, conversationHistory: any[] = []): Promise<any> {
   const pipelineStart = Date.now();
-  const timings: any = {};
-  const tokenUsagePerAgent: any[] = [];
   
   try {
-    // Prepare context with sliding-window strategy
-    let contextForAgents = conversationHistory;
+    // Prepare context with sliding-window strategy + summary
+    let contextString: string | undefined;
+    
     if (conversationHistory.length > 3) {
       // Generate or update summary for turns 0 to -3
       const oldTurns = conversationHistory.slice(0, -3);
       conversationSummaryStorage = await generateConversationSummary(oldTurns, conversationSummaryStorage || undefined);
       
-      // Use summary + last 3 turns
-      contextForAgents = [
-        { 
-          isSummary: true, 
-          summaryText: conversationSummaryStorage.summaryText,
-          tables: conversationSummaryStorage.keyMetadata.tablesUsed
-        },
-        ...conversationHistory.slice(-3)
-      ];
+      // Format context: summary + last 3 turns
+      const recentTurns = conversationHistory.slice(-3);
+      const recentContext = recentTurns.map((t, idx) =>
+        `Turn ${idx + 1}: Q: "${t.question}" | SQL: ${t.sql || 'N/A'} | Result: ${t.rowCount || 0} rows${t.keyMetric ? ' | ' + t.keyMetric : ''}`
+      ).join('\n');
+      
+      contextString = `## Conversation Summary\n${conversationSummaryStorage.summaryText}\n\n## Recent Turns\n${recentContext}`;
       
       console.log(`\n📚 [Context Management] Using summary (${conversationSummaryStorage.tokenCount} tokens) + last 3 turns`);
+    } else if (conversationHistory.length > 0) {
+      // Just use all turns directly if few
+      contextString = conversationHistory.map((t, idx) =>
+        `Turn ${idx + 1}: Q: "${t.question}" | SQL: ${t.sql || 'N/A'} | Result: ${t.rowCount || 0} rows${t.keyMetric ? ' | ' + t.keyMetric : ''}`
+      ).join('\n');
     }
     
-    // Get database schema
-    let stepStart = Date.now();
-    const schema = await getCompleteSchema(DB_PATH);
-    timings.schema_loading_ms = Date.now() - stepStart;
-
-    // Schema Linking
-    stepStart = Date.now();
-    const schemaLinkingResult = await schemaLinkingAgent(question, schema, contextForAgents);
-    const linkedSchema = schemaLinkingResult.result;
-    timings.schema_linking_ms = Date.now() - stepStart;
-    tokenUsagePerAgent.push({
-      agent: 'schema_linking',
-      ...schemaLinkingResult.tokenUsage
+    // Call orchestrator with context
+    const orchestratorResult = await runOrchestrator(question, contextString);
+    
+    // Log token usage
+    orchestratorResult.tokenUsage.perTool.forEach(toolUsage => {
+      logTokenUsage(toolUsage.tool, orchestratorResult.tokenUsage.model, toolUsage, question);
     });
-
-    // Subproblem Identification
-    stepStart = Date.now();
-    const subproblemResult = await subproblemAgent(question, linkedSchema);
-    const subproblems = subproblemResult.result;
-    timings.subproblem_ms = Date.now() - stepStart;
-    tokenUsagePerAgent.push({
-      agent: 'subproblem',
-      ...subproblemResult.tokenUsage
-    });
-
-    // Query Plan Generation
-    stepStart = Date.now();
-    const queryPlanResult = await queryPlanAgent(question, linkedSchema, subproblems, contextForAgents);
-    const queryPlan = queryPlanResult.result;
-    timings.query_plan_ms = Date.now() - stepStart;
-    tokenUsagePerAgent.push({
-      agent: 'query_plan',
-      ...queryPlanResult.tokenUsage
-    });
-
-    // SQL Generation
-    stepStart = Date.now();
-    const sqlGenResult = await sqlGenerationAgent(question, queryPlan, linkedSchema, contextForAgents);
-    let generatedSQL = sqlGenResult.sql;
-    timings.sql_generation_ms = Date.now() - stepStart;
-    tokenUsagePerAgent.push({
-      agent: 'sql_generation',
-      ...sqlGenResult.tokenUsage
-    });
-
-    // Execute and potentially correct
-    let attempt = 0;
-    let success = false;
-    let result: any;
-    const correctionTimings: number[] = [];
-
-    while (attempt <= MAX_CORRECTION_ATTEMPTS && !success) {
-      stepStart = Date.now();
-      result = await executeSQL(generatedSQL, DB_PATH);
-      const executionTime = Date.now() - stepStart;
-
-      if (result.success) {
-        success = true;
-        timings.sql_execution_ms = result.execution_time_ms;
-        timings.total_pipeline_ms = Date.now() - pipelineStart;
-        
-        // Convert BigInt to string for JSON serialization
-        const resultsConverted = result.result?.map((row: any) => {
-          const converted: any = {};
-          for (const [key, value] of Object.entries(row)) {
-            converted[key] = typeof value === 'bigint' ? value.toString() : value;
-          }
-          return converted;
-        });
-
-        // Calculate aggregate token usage
-        const aggregateTokens = {
-          totalPromptTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.promptTokens, 0),
-          totalCompletionTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.completionTokens, 0),
-          totalTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.totalTokens, 0)
-        };
-
-        // Log token usage for each agent
-        tokenUsagePerAgent.forEach(agentUsage => {
-          logTokenUsage(agentUsage.agent, MODEL, agentUsage, question);
-        });
-
-        // Extract key metric if present (e.g., aggregation result)
-        let keyMetric = '';
-        if (resultsConverted && resultsConverted.length > 0) {
-          const firstRow = resultsConverted[0];
-          const keys = Object.keys(firstRow);
-          // Check if there's an aggregation (COUNT, AVG, SUM, etc.)
-          const aggregateKey = keys.find(k => 
-            k.match(/^(COUNT|AVG|SUM|MIN|MAX|TOTAL)/i) || 
-            k.toLowerCase().includes('average') ||
-            k.toLowerCase().includes('total')
-          );
-          if (aggregateKey) {
-            keyMetric = `${aggregateKey}: ${firstRow[aggregateKey]}`;
-          }
-        }
-
-        return {
-          success: true,
-          sql: generatedSQL,
-          results: resultsConverted || [],
-          row_count: result.row_count,
-          execution_time_ms: result.execution_time_ms,
-          timings: timings,
-          tokenUsage: {
-            model: MODEL,
-            perAgent: tokenUsagePerAgent,
-            aggregate: aggregateTokens
-          },
-          // Enhanced metadata for conversation history
-          metadata: {
-            tables: linkedSchema.tables || [],
-            rowCount: result.row_count,
-            keyMetric: keyMetric
-          }
-        };
-      } else {
-        if (attempt < MAX_CORRECTION_ATTEMPTS) {
-          // Enter correction loop
-          const correctionStart = Date.now();
-          const correctionPlanResult = await correctionPlanAgent(question, generatedSQL, result.error || '', linkedSchema);
-          const correctionPlan = correctionPlanResult.result;
-          tokenUsagePerAgent.push({
-            agent: 'correction_plan',
-            ...correctionPlanResult.tokenUsage
-          });
-          
-          const correctionSQLResult = await correctionSQLAgent(question, generatedSQL, correctionPlan, linkedSchema);
-          generatedSQL = correctionSQLResult.sql;
-          tokenUsagePerAgent.push({
-            agent: 'correction_sql',
-            ...correctionSQLResult.tokenUsage
-          });
-          
-          correctionTimings.push(Date.now() - correctionStart);
-        }
-        attempt++;
-      }
-    }
-
-    if (correctionTimings.length > 0) {
-      timings.correction_attempts_ms = correctionTimings;
-    }
-    timings.total_pipeline_ms = Date.now() - pipelineStart;
-
-    // Calculate aggregate token usage even on failure
-    const aggregateTokens = {
-      totalPromptTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.promptTokens, 0),
-      totalCompletionTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.completionTokens, 0),
-      totalTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.totalTokens, 0)
-    };
-
+    
+    // Format response to match expected API format
     return {
-      success: false,
-      error: result.error || 'Unknown error',
-      sql: generatedSQL,
-      attempts: attempt,
-      timings: timings,
+      success: orchestratorResult.success,
+      sql: orchestratorResult.sql,
+      results: orchestratorResult.results || [],
+      row_count: orchestratorResult.row_count || 0,
+      finalAnswer: orchestratorResult.finalAnswer,
+      visualization: orchestratorResult.visualization,
+      execution_time_ms: orchestratorResult.timings.total_ms,
+      timings: orchestratorResult.timings,
       tokenUsage: {
-        model: MODEL,
-        perAgent: tokenUsagePerAgent,
-        aggregate: aggregateTokens
-      }
+        model: orchestratorResult.tokenUsage.model,
+        method: 'orchestrator_with_summary',
+        perAgent: orchestratorResult.tokenUsage.perTool,
+        aggregate: orchestratorResult.tokenUsage.aggregate
+      },
+      metadata: orchestratorResult.metadata,
+      iterations: orchestratorResult.iterations,
+      // Include summary info if it was used
+      summary: conversationSummaryStorage ? {
+        summaryText: conversationSummaryStorage.summaryText,
+        turnsCount: conversationSummaryStorage.turnRange.end,
+        tokenCount: conversationSummaryStorage.tokenCount,
+        tablesUsed: conversationSummaryStorage.keyMetadata.tablesUsed
+      } : undefined
     };
   } catch (error: any) {
-    timings.total_pipeline_ms = Date.now() - pipelineStart;
+    const totalMs = Date.now() - pipelineStart;
     
-    // Calculate aggregate token usage for partial execution
-    const aggregateTokens = tokenUsagePerAgent.length > 0 ? {
-      totalPromptTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.promptTokens, 0),
-      totalCompletionTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.completionTokens, 0),
-      totalTokens: tokenUsagePerAgent.reduce((sum, agent) => sum + agent.totalTokens, 0)
-    } : null;
-
     return {
       success: false,
       error: error.message || 'Pipeline error',
-      timings: timings,
-      tokenUsage: aggregateTokens ? {
-        model: MODEL,
-        perAgent: tokenUsagePerAgent,
-        aggregate: aggregateTokens
-      } : null
+      timings: { total_ms: totalMs },
+      tokenUsage: null
     };
   }
 }
