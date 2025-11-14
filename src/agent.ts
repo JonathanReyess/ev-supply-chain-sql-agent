@@ -101,6 +101,48 @@ interface AgentState {
   conversationHistory: Array<{role: string, content: string}>;
 }
 
+// Token usage tracking interface
+interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+// Orchestrator result interface
+export interface OrchestratorResult {
+  success: boolean;
+  question: string;
+  sql?: string;
+  results?: any[];
+  row_count?: number;
+  finalAnswer?: string;
+  visualization?: any;
+  timings: {
+    total_ms: number;
+    [key: string]: number;
+  };
+  tokenUsage: {
+    model: string;
+    perTool: Array<{
+      tool: string;
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+    }>;
+    aggregate: {
+      totalPromptTokens: number;
+      totalCompletionTokens: number;
+      totalTokens: number;
+    };
+  };
+  iterations: number;
+  metadata?: {
+    tables?: string[];
+    rowCount?: number;
+    keyMetric?: string;
+  };
+}
+
 function createInitialState(question: string): AgentState {
   return {
     question,
@@ -133,7 +175,7 @@ async function toolLoadSchema(state: AgentState): Promise<string> {
 /**
  * Tool 2: Schema Linking 
  */
-async function toolSchemaLinking(state: AgentState): Promise<string> {
+async function toolSchemaLinking(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
   console.log('\n🔗 [Tool: Schema Linking] Analyzing question for relevant schema elements...');
   
   if (!state.schema) {
@@ -160,6 +202,13 @@ Analyze the question and identify the relevant tables, columns, and relationship
     },
   });
 
+  // Track token usage
+  tokenTracker.push({
+    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: response.usageMetadata?.totalTokenCount || 0,
+  });
+
   const jsonText = cleanJsonString(response.text || '{}'); // Apply fix
   const result = JSON.parse(jsonText);
   state.linkedSchema = result;
@@ -170,7 +219,7 @@ Analyze the question and identify the relevant tables, columns, and relationship
 /**
  * Tool 3: KPI Decomposition 
  */
-async function toolKPIDecomposition(state: AgentState): Promise<string> {
+async function toolKPIDecomposition(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
   console.log('\n📊 [Tool: KPI Decomposition] Breaking down KPI metrics...');
   
   if (!state.linkedSchema) {
@@ -199,6 +248,13 @@ Analyze the question and break down the KPI into its core components. Return ONL
     },
   });
 
+  // Track token usage
+  tokenTracker.push({
+    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: response.usageMetadata?.totalTokenCount || 0,
+  });
+
   const jsonText = cleanJsonString(response.text || '{}'); // Apply fix
   const result = JSON.parse(jsonText);
   state.kpiDecomposition = result;
@@ -209,7 +265,7 @@ Analyze the question and break down the KPI into its core components. Return ONL
 /**
  * Tool 4: Subproblem Identification 
  */
-async function toolSubproblemIdentification(state: AgentState): Promise<string> {
+async function toolSubproblemIdentification(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
   console.log('\n🧩 [Tool: Subproblem Identification] Breaking down query...');
   
   if (!state.linkedSchema) {
@@ -258,6 +314,13 @@ Identify which SQL clauses are needed and what each should accomplish. Return th
     },
   });
 
+  // Track token usage
+  tokenTracker.push({
+    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: response.usageMetadata?.totalTokenCount || 0,
+  });
+
   // Use the robust cleanJsonString function
   const jsonText = cleanJsonString(response.text || '{}');
   
@@ -278,7 +341,7 @@ Identify which SQL clauses are needed and what each should accomplish. Return th
 /**
  * Tool 5: Query Planning 
  */
-async function toolQueryPlanning(state: AgentState): Promise<string> {
+async function toolQueryPlanning(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
   console.log('\n🤔 [Tool: Query Planning] Generating execution plan...');
   
   if (!state.linkedSchema) {
@@ -319,6 +382,13 @@ Create a detailed step-by-step query plan using Chain-of-Thought reasoning. Retu
     },
   });
 
+  // Track token usage
+  tokenTracker.push({
+    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: response.usageMetadata?.totalTokenCount || 0,
+  });
+
   const jsonText = cleanJsonString(response.text || '{}'); // Apply fix
   const result = JSON.parse(jsonText);
   state.queryPlan = result;
@@ -329,7 +399,7 @@ Create a detailed step-by-step query plan using Chain-of-Thought reasoning. Retu
 /**
  * Tool 6: SQL Generation
  */
-async function toolSQLGeneration(state: AgentState): Promise<string> {
+async function toolSQLGeneration(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
   console.log('\n📝 [Tool: SQL Generation] Generating SQL query...');
   
   if (!state.queryPlan || !state.linkedSchema) {
@@ -358,6 +428,13 @@ Generate the SQL query that implements this plan. Return ONLY the SQL query, no 
     config: {
       temperature: TEMPERATURE,
     },
+  });
+
+  // Track token usage
+  tokenTracker.push({
+    promptTokens: response.usageMetadata?.promptTokenCount || 0,
+    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: response.usageMetadata?.totalTokenCount || 0,
   });
 
   const sql = response.text?.trim() || '';
@@ -406,7 +483,7 @@ async function toolExecuteSQL(state: AgentState): Promise<string> {
 /**
  * Tool 8: Error Correction 
  */
-async function toolErrorCorrection(state: AgentState): Promise<string> {
+async function toolErrorCorrection(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
   console.log('\n🔧 [Tool: Error Correction] Analyzing and fixing error...');
   
   if (!state.executionResult || state.executionResult.success) {
@@ -449,6 +526,13 @@ Analyze this error using the taxonomy and provide a structured correction plan. 
     },
   });
 
+  // Track token usage for correction plan
+  tokenTracker.push({
+    promptTokens: correctionPlanResponse.usageMetadata?.promptTokenCount || 0,
+    completionTokens: correctionPlanResponse.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: correctionPlanResponse.usageMetadata?.totalTokenCount || 0,
+  });
+
   const correctionPlanJsonText = cleanJsonString(correctionPlanResponse.text || '{}'); // Apply fix
   const correctionPlan = JSON.parse(correctionPlanJsonText);
   console.log('  ✓ Error categories:', correctionPlan.error_categories);
@@ -479,6 +563,13 @@ Generate the corrected SQL query that addresses all issues identified in the cor
     },
   });
 
+  // Track token usage for corrected SQL
+  tokenTracker.push({
+    promptTokens: correctedSQLResponse.usageMetadata?.promptTokenCount || 0,
+    completionTokens: correctedSQLResponse.usageMetadata?.candidatesTokenCount || 0,
+    totalTokens: correctedSQLResponse.usageMetadata?.totalTokenCount || 0,
+  });
+
   const sql = correctedSQLResponse.text?.trim() || '';
   const cleanedSQL = sql
     .replace(/```sql\n?/g, '')
@@ -494,7 +585,7 @@ Generate the corrected SQL query that addresses all issues identified in the cor
 /**
  * Tool 9: Visualize Results
  */
-async function toolVisualizeResults(state: AgentState): Promise<string> {
+async function toolVisualizeResults(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
   console.log('\n📈 [Tool: Visualize Results] Generating visualization...');
   
   if (!state.executionResult || !state.executionResult.success) {
@@ -530,6 +621,13 @@ NOTE: Ensure your response is a valid JSON object matching the 'generate_plot' i
       },
     });
 
+    // Track token usage
+    tokenTracker.push({
+      promptTokens: response.usageMetadata?.promptTokenCount || 0,
+      completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+      totalTokens: response.usageMetadata?.totalTokenCount || 0,
+    });
+
     const plotParamsJsonText = cleanJsonString(response.text || '{}'); // Apply fix
     const plotParams: PlottingInput = JSON.parse(plotParamsJsonText);
     // NOTE: query_results is added here, outside the LLM call
@@ -550,18 +648,6 @@ NOTE: Ensure your response is a valid JSON object matching the 'generate_plot' i
 // ----------------------------------------------------------------------
 // TOOL REGISTRY
 // ----------------------------------------------------------------------
-type ToolName = keyof typeof TOOLS;
-const TOOLS = {
-  load_schema: toolLoadSchema,
-  schema_linking: toolSchemaLinking,
-  kpi_decomposition: toolKPIDecomposition,
-  subproblem_identification: toolSubproblemIdentification,
-  query_planning: toolQueryPlanning,
-  sql_generation: toolSQLGeneration,
-  execute_sql: toolExecuteSQL,
-  error_correction: toolErrorCorrection,
-  visualize_results: toolVisualizeResults,
-};
 
 const TOOL_DESCRIPTIONS = {
   load_schema: "Load the database schema to understand available tables and columns",
@@ -576,32 +662,39 @@ const TOOL_DESCRIPTIONS = {
 };
 
 // ----------------------------------------------------------------------
-// DEBUG: STATE LOGGING HELPER (Optional - kept for context)
-// ----------------------------------------------------------------------
-
-// ----------------------------------------------------------------------
 // LOOPING ORCHESTRATOR AGENT
 // ----------------------------------------------------------------------
 
 /**
- * The main Orchestrator Agent that runs in a loop
+ * The main Orchestrator Agent that runs in a loop - EXPORTED for use by API servers
+ * @param question - The user's question
+ * @param contextHistory - Optional conversation context (from summaries or embeddings)
+ * @returns Structured results including SQL, results, tokens, and timings
  */
-async function orchestratorAgent(question: string): Promise<void> {
+export async function runOrchestrator(
+  question: string,
+  contextHistory?: string
+): Promise<OrchestratorResult> {
+  const startTime = Date.now();
+  const tokenTracker: TokenUsage[] = [];
   console.log('\n' + '='.repeat(80));
   console.log(' SQL-of-Thought: Looping Orchestrator Agent');
   console.log('='.repeat(80));
   console.log('\n📝 Question:', question);
+  if (contextHistory) {
+    console.log('📚 Using conversation context');
+  }
 
   const state = createInitialState(question);
   let iteration = 0;
-  // --- NEW: Add a counter for consecutive API failures ---
   let consecutiveApiFailures = 0;
-  // --------------------------------------------------------
 
+  // Inject context history into system prompt if provided
+  const contextSection = contextHistory ? `\n\n## Conversation Context\n${contextHistory}\n` : '';
 
   // System prompt for the orchestrator (defines the agent's identity and rules)
-  const systemPrompt = `You are an intelligent data analyst orchestrator agent. Your goal is to answer the user's question about data in a database.
-
+  const baseSystemPrompt = `You are an intelligent data analyst orchestrator agent. Your goal is to answer the user's question about data in a database.
+${contextSection}
 You have access to these tools:
 ${Object.entries(TOOL_DESCRIPTIONS).map(([name, desc]) => `- ${name}: ${desc}`).join('\n')}
 
@@ -617,20 +710,7 @@ Guidelines:
 - After generating SQL, always execute it
 - If execution fails, use error_correction (up to ${MAX_CORRECTION_ATTEMPTS} times)
 - Consider visualization for numerical results
-- When you have the answer, respond with "FINAL_ANSWER: [your answer]"
-
-Current state summary:
-- Schema loaded: ${!!state.schema}
-- Schema linked: ${!!state.linkedSchema}
-- Query plan created: ${!!state.queryPlan}
-- SQL generated: ${!!state.currentSQL}
-- SQL executed: ${!!state.executionResult}
-- Execution success: ${state.executionResult?.success || false}
-- Correction attempts: ${state.correctionAttempts}/${MAX_CORRECTION_ATTEMPTS}
-
-Choose your next action. Respond with either:
-1. "TOOL: [tool_name]" to call a tool
-2. "FINAL_ANSWER: [answer]" when ready to answer the user`;
+- When you have the answer, respond with "FINAL_ANSWER: [your answer]"`;
 
   while (iteration < MAX_AGENT_ITERATIONS && !state.completed) {
     iteration++;
@@ -661,7 +741,21 @@ Choose your next action. Respond with either:
       ? `\n\nPrevious actions:\n${state.conversationHistory.map(h => `${h.role}: ${h.content}`).join('\n')}`
       : '';
 
-    const promptForAgent = systemPrompt + conversationContext + `\n\nWhat is your next action?`;
+    // Build current state summary for this iteration
+    const currentStateSummary = `\n\nCurrent state summary:
+- Schema loaded: ${!!state.schema}
+- Schema linked: ${!!state.linkedSchema}
+- Query plan created: ${!!state.queryPlan}
+- SQL generated: ${!!state.currentSQL}
+- SQL executed: ${!!state.executionResult}
+- Execution success: ${state.executionResult?.success || false}
+- Correction attempts: ${state.correctionAttempts}/${MAX_CORRECTION_ATTEMPTS}
+
+Choose your next action. Respond with either:
+1. "TOOL: [tool_name]" to call a tool
+2. "FINAL_ANSWER: [answer]" when ready to answer the user`;
+
+    const promptForAgent = baseSystemPrompt + conversationContext + currentStateSummary + `\n\nWhat is your next action?`;
 
     // 🐛 DEBUG BLOCK: Print the full context being sent to the LLM
     console.log('\n\n' + '<<<'+'='.repeat(30) + ' AGENT PROMPT CONTEXT ' + '='.repeat(30) + '>>>');
@@ -680,29 +774,43 @@ Choose your next action. Respond with either:
             },
         });
         
-        // --- NEW: Reset failure counter on successful LLM call ---
+        // Track token usage for orchestrator decision
+        tokenTracker.push({
+          promptTokens: response.usageMetadata?.promptTokenCount || 0,
+          completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
+          totalTokens: response.usageMetadata?.totalTokenCount || 0,
+        });
+        
         consecutiveApiFailures = 0;
-        // --------------------------------------------------------
     } catch (error) {
-        // --- NEW: Catch API errors directly from the decision call ---
         const errorString = String(error);
         if (errorString.includes('429') || errorString.includes('503')) {
             consecutiveApiFailures++;
             console.error(`\n🚨 Rate Limit/Service Unavailable Error: ${errorString.split('\n')[0].trim()}`);
             
-            // Log the error into history so the agent sees it
             state.conversationHistory.push({
                 role: 'system',
                 content: `LLM API failed with Quota/Service Error. Retrying.`,
             });
             
-            // Skip the rest of the loop for this iteration to retry the decision.
             continue;
         } else {
-            // Handle other, unexpected errors
             console.error('\n🚨 Unrecoverable Error during agent decision:', error);
-            state.completed = true;
-            return;
+            
+            // Return error result
+            const totalMs = Date.now() - startTime;
+            return {
+              success: false,
+              question,
+              finalAnswer: `Error: ${errorString}`,
+              timings: { total_ms: totalMs },
+              tokenUsage: {
+                model: MODEL,
+                perTool: [],
+                aggregate: { totalPromptTokens: 0, totalCompletionTokens: 0, totalTokens: 0 }
+              },
+              iterations: iteration
+            };
         }
     }
     
@@ -727,43 +835,71 @@ Choose your next action. Respond with either:
     } else if (agentDecision.startsWith('TOOL:')) {
       const toolName = agentDecision.replace('TOOL:', '').trim();
       
-      if (toolName in TOOLS) {
-        const tool = TOOLS[toolName as ToolName];
-        try {
-          const toolResult = await tool(state);
-          console.log(`\n📤 Tool Result: ${toolResult}`);
-          
-          // Add to conversation history
-          state.conversationHistory.push({
-            role: 'agent',
-            content: `Called tool: ${toolName}`,
-          });
-          state.conversationHistory.push({
-            role: 'system',
-            content: `Tool result: ${toolResult}`,
-          });
-
-        } catch (error) {
-          console.error(`\n Tool Error: ${error}`);
-          state.conversationHistory.push({
-            role: 'system',
-            content: `Tool ${toolName} failed: ${error}`,
-          });
-          
-          // --- NEW: Check if tool error is a 503/429. If so, increment failure counter.
-          // This ensures that even tool-specific LLM calls trigger the backoff.
-          const errorString = String(error);
-          if (errorString.includes('429') || errorString.includes('503')) {
-              consecutiveApiFailures++;
-          }
-          // ------------------------------------------------------------------------
+      // Call tool with token tracker
+      try {
+        let toolResult: string;
+        
+        // Call tool based on name with appropriate parameters
+        switch (toolName) {
+          case 'load_schema':
+            toolResult = await toolLoadSchema(state);
+            break;
+          case 'schema_linking':
+            toolResult = await toolSchemaLinking(state, tokenTracker);
+            break;
+          case 'kpi_decomposition':
+            toolResult = await toolKPIDecomposition(state, tokenTracker);
+            break;
+          case 'subproblem_identification':
+            toolResult = await toolSubproblemIdentification(state, tokenTracker);
+            break;
+          case 'query_planning':
+            toolResult = await toolQueryPlanning(state, tokenTracker);
+            break;
+          case 'sql_generation':
+            toolResult = await toolSQLGeneration(state, tokenTracker);
+            break;
+          case 'execute_sql':
+            toolResult = await toolExecuteSQL(state);
+            break;
+          case 'error_correction':
+            toolResult = await toolErrorCorrection(state, tokenTracker);
+            break;
+          case 'visualize_results':
+            toolResult = await toolVisualizeResults(state, tokenTracker);
+            break;
+          default:
+            console.log(`\n⚠  Unknown tool: ${toolName}`);
+            state.conversationHistory.push({
+              role: 'system',
+              content: `Unknown tool: ${toolName}. Available tools: ${Object.keys(TOOL_DESCRIPTIONS).join(', ')}`,
+            });
+            continue;
         }
-      } else {
-        console.log(`\n⚠  Unknown tool: ${toolName}`);
+        
+        console.log(`\n📤 Tool Result: ${toolResult}`);
+        
+        // Add to conversation history
+        state.conversationHistory.push({
+          role: 'agent',
+          content: `Called tool: ${toolName}`,
+        });
         state.conversationHistory.push({
           role: 'system',
-          content: `Unknown tool: ${toolName}. Available tools: ${Object.keys(TOOLS).join(', ')}`,
+          content: `Tool result: ${toolResult}`,
         });
+
+      } catch (error) {
+        console.error(`\n❌ Tool Error: ${error}`);
+        state.conversationHistory.push({
+          role: 'system',
+          content: `Tool ${toolName} failed: ${error}`,
+        });
+        
+        const errorString = String(error);
+        if (errorString.includes('429') || errorString.includes('503')) {
+            consecutiveApiFailures++;
+        }
       }
     } else {
       console.log('\n⚠  Agent provided invalid response format. Expected TOOL: or FINAL_ANSWER:');
@@ -783,17 +919,76 @@ Choose your next action. Respond with either:
     }
   }
 
+  const totalMs = Date.now() - startTime;
+
   if (!state.completed) {
     console.log('\n⚠  Maximum iterations reached without completing the task.');
   }
 
   console.log('\n' + '='.repeat(80));
-  console.log(state.completed ? ' Orchestration completed!' : '⚠  Orchestration incomplete');
+  console.log(state.completed ? '✅ Orchestration completed!' : '⚠  Orchestration incomplete');
   console.log('='.repeat(80) + '\n');
+
+  // Calculate aggregate token usage
+  const aggregateTokens = tokenTracker.reduce(
+    (acc, usage) => ({
+      totalPromptTokens: acc.totalPromptTokens + usage.promptTokens,
+      totalCompletionTokens: acc.totalCompletionTokens + usage.completionTokens,
+      totalTokens: acc.totalTokens + usage.totalTokens,
+    }),
+    { totalPromptTokens: 0, totalCompletionTokens: 0, totalTokens: 0 }
+  );
+
+  // Extract metadata
+  const resultsConverted = state.executionResult?.result 
+    ? convertBigIntsToStrings(state.executionResult.result)
+    : [];
+
+  let keyMetric = '';
+  if (resultsConverted && resultsConverted.length > 0) {
+    const firstRow = resultsConverted[0];
+    const keys = Object.keys(firstRow);
+    const aggregateKey = keys.find(k =>
+      k.match(/^(COUNT|AVG|SUM|MIN|MAX|TOTAL)/i) ||
+      k.toLowerCase().includes('average') ||
+      k.toLowerCase().includes('total')
+    );
+    if (aggregateKey) {
+      keyMetric = `${aggregateKey}: ${firstRow[aggregateKey]}`;
+    }
+  }
+
+  // Return structured result
+  return {
+    success: state.completed && !!state.finalAnswer,
+    question,
+    sql: state.currentSQL,
+    results: resultsConverted,
+    row_count: state.executionResult?.row_count || 0,
+    finalAnswer: state.finalAnswer || 'Task incomplete',
+    visualization: state.visualizationResult,
+    timings: {
+      total_ms: totalMs,
+    },
+    tokenUsage: {
+      model: MODEL,
+      perTool: tokenTracker.map((usage, idx) => ({
+        tool: `call_${idx + 1}`,
+        ...usage,
+      })),
+      aggregate: aggregateTokens,
+    },
+    iterations: iteration,
+    metadata: {
+      tables: state.linkedSchema?.tables || [],
+      rowCount: state.executionResult?.row_count || 0,
+      keyMetric,
+    },
+  };
 }
 
 // ----------------------------------------------------------------------
-// DEMO EXECUTION
+// DEMO EXECUTION (for standalone testing)
 // ----------------------------------------------------------------------
 
 const DEMO_QUERIES = [
@@ -803,9 +998,21 @@ const DEMO_QUERIES = [
   'What is the average order to deliver time per warehouse across all battery components?',
 ];
 
-// Allows running different queries using "node your_file.js [index]"
-const questionIndex = process.argv[2] ? parseInt(process.argv[2]) : 0;
-const question = DEMO_QUERIES[questionIndex] || DEMO_QUERIES[0];
+// Only run demo if this file is executed directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const questionIndex = process.argv[2] ? parseInt(process.argv[2]) : 0;
+  const question = DEMO_QUERIES[questionIndex] || DEMO_QUERIES[0];
 
-// Execute the main function
-orchestratorAgent(question).catch(console.error);
+  runOrchestrator(question)
+    .then(result => {
+      console.log('\n📊 Final Result:', {
+        success: result.success,
+        sql: result.sql,
+        rowCount: result.row_count,
+        answer: result.finalAnswer,
+        iterations: result.iterations,
+        totalTokens: result.tokenUsage.aggregate.totalTokens,
+      });
+    })
+    .catch(console.error);
+}
