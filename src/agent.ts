@@ -758,9 +758,9 @@ Choose your next action. Respond with either:
     const promptForAgent = baseSystemPrompt + conversationContext + currentStateSummary + `\n\nWhat is your next action?`;
 
     // 🐛 DEBUG BLOCK: Print the full context being sent to the LLM
-    console.log('\n\n' + '<<<'+'='.repeat(30) + ' AGENT PROMPT CONTEXT ' + '='.repeat(30) + '>>>');
-    console.log(promptForAgent);
-    console.log('<<<' + '='.repeat(78) + '>>>\n');
+    // console.log('\n\n' + '<<<'+'='.repeat(30) + ' AGENT PROMPT CONTEXT ' + '='.repeat(30) + '>>>');
+    // console.log(promptForAgent);
+    // console.log('<<<' + '='.repeat(78) + '>>>\n');
     // 🐛 END DEBUG BLOCK
 
     let response;
