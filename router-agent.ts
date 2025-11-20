@@ -11,7 +11,7 @@ dotenv.config();
 const ai = new GoogleGenAI({});
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-// 🚨 NEW INTERFACE for Type Safety 🚨
+// Interface for Type Safety 
 interface DockingAgentResponse {
     answer: Array<{
         door_id: string;
