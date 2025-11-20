@@ -12,6 +12,8 @@
     "api:summary": "npx tsx src/api.ts",
     "api:embeddings": "npx tsx src/api-embeddings.ts",
     "test:conversation": "npx tsx src/test/compare-conversation-methods.ts",
+    "evaluate": "npx tsx src/evaluation/run-evaluation.ts",
+    "evaluate:quick": "npx tsx src/evaluation/run-evaluation.ts 3",
     "frontend": "npx http-server frontend -p 3000 -c-1 --cors",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

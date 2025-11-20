@@ -99,6 +99,7 @@ interface AgentState {
   finalAnswer?: string;
   completed: boolean;
   conversationHistory: Array<{role: string, content: string}>;
+  toolCallSequence: string[]; // Track actual tool names called
 }
 
 // Token usage tracking interface
@@ -106,6 +107,7 @@ interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  toolName?: string; // Actual tool name
 }
 
 // Orchestrator result interface
@@ -136,6 +138,7 @@ export interface OrchestratorResult {
     };
   };
   iterations: number;
+  toolCallSequence?: string[]; // Actual tool names called in order
   metadata?: {
     tables?: string[];
     rowCount?: number;
@@ -149,6 +152,7 @@ function createInitialState(question: string): AgentState {
     correctionAttempts: 0,
     completed: false,
     conversationHistory: [],
+    toolCallSequence: [],
   };
 }
 
@@ -818,6 +822,9 @@ Choose your next action. Respond with either:
     } else if (agentDecision.startsWith('TOOL:')) {
       const toolName = agentDecision.replace('TOOL:', '').trim();
       
+      // Track tool call
+      state.toolCallSequence.push(toolName);
+      
       // Call tool with token tracker
       try {
         let toolResult: string;
@@ -959,6 +966,7 @@ Choose your next action. Respond with either:
       aggregate: aggregateTokens,
     },
     iterations: iteration,
+    toolCallSequence: state.toolCallSequence, // Actual tool names in order
     metadata: {
       tables: state.linkedSchema?.tables || [],
       rowCount: state.executionResult?.row_count || 0,
