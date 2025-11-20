@@ -267,8 +267,8 @@ Analyze the question and break down the KPI into its core components. Return ONL
   console.log('  ✓ Decomposed KPI:', result.kpi_name);
 
   // --- START: ADDED COOLDOWN ---
-  console.log('\n⏸️ Implementing fixed 30s cooldown to respect API limits...');
-  await sleep(30000); 
+  console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+  await sleep(20000); 
   // --- END: ADDED COOLDOWN ---
 
   return `KPI decomposed: ${result.kpi_name}. Primary calculation: ${result.primary_calculation?.operation} on ${result.primary_calculation?.target}`;
@@ -331,8 +331,8 @@ Create a detailed step-by-step query plan using Chain-of-Thought reasoning. Ensu
     console.log('  ✓ Generated plan with', result.steps?.length || 0, 'steps');
 
     // --- START: ADDED COOLDOWN ---
-    console.log('\n⏸️ Implementing fixed 30s cooldown to respect API limits...');
-    await sleep(30000); 
+    console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+    await sleep(20000); 
     // --- END: ADDED COOLDOWN ---
     
     return `Query plan created with ${result.steps?.length || 0} steps. Strategy: ${result.final_strategy}`;
@@ -398,8 +398,8 @@ Generate the SQL query that implements this plan. Return ONLY the SQL query, no 
   console.log('  ✓ Generated SQL');
 
   // --- START: ADDED COOLDOWN ---
-  console.log('\n⏸️ Implementing fixed 30s cooldown to respect API limits...');
-  await sleep(30000); 
+  console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+  await sleep(20000); 
   // --- END: ADDED COOLDOWN ---
 
   return `SQL query generated: ${cleanedSQL.substring(0, 100)}...`;
@@ -495,8 +495,8 @@ Analyze this error using the taxonomy and provide a structured correction plan. 
   console.log('  ✓ Error categories:', correctionPlan.error_categories);
 
   // --- START: ADDED COOLDOWN (Part 1/2) ---
-  console.log('\n⏸️ Implementing fixed 30s cooldown to respect API limits...');
-  await sleep(30000); 
+  console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+  await sleep(20000); 
   // --- END: ADDED COOLDOWN (Part 1/2) ---
 
   // Generate corrected SQL
@@ -543,8 +543,8 @@ Generate the corrected SQL query that addresses all issues identified in the cor
   console.log('  ✓ Generated corrected SQL');
 
   // --- START: ADDED COOLDOWN (Part 2/2) ---
-  console.log('\n⏸️ Implementing fixed 30s cooldown to respect API limits...');
-  await sleep(30000); 
+  console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+  await sleep(20000); 
   // --- END: ADDED COOLDOWN (Part 2/2) ---
   
   return `SQL corrected (attempt ${state.correctionAttempts}/${MAX_CORRECTION_ATTEMPTS}). Error categories: ${correctionPlan.error_categories.join(', ')}`;
@@ -600,8 +600,8 @@ NOTE: Ensure your response is a valid JSON object matching the 'generate_plot' i
     const plotParams: PlottingInput = JSON.parse(plotParamsJsonText);
 
     // --- START: ADDED COOLDOWN ---
-    console.log('\n⏸️ Implementing fixed 30s cooldown to respect API limits...');
-    await sleep(30000); 
+    console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+    await sleep(20000); 
     // --- END: ADDED COOLDOWN ---
     
     // NOTE: query_results is added here, outside the LLM call
@@ -760,8 +760,8 @@ Choose your next action. Respond with either:
         
         // --- START: ADDED COOLDOWN ---
         if (response) { 
-            console.log('\n⏸️ Implementing fixed 30s cooldown to respect API limits (Orchestrator Decision)...');
-            await sleep(30000); 
+            console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits (Orchestrator Decision)...');
+            await sleep(20000); 
         }
         // --- END: ADDED COOLDOWN ---
 
