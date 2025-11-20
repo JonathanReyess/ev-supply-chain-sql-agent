@@ -1,0 +1,253 @@
+[
+    {
+    "id": 1,
+    "question": "What is the total quantity of Battery components currently in stock across all warehouses?",
+    "agent": "sql",
+    "category": "aggregation",
+    "difficulty": "easy",
+    "expected_sql": "SELECT SUM(i.quantityinstock) AS total_battery_stock\nFROM inventory i\nJOIN components c ON i.componentid = c.componentid\nWHERE c.type = 'Battery';",
+    "expected_answer_type": "number",
+    "tables_involved": ["inventory", "components"]
+    },
+    {
+    "id": 2,
+    "question": "How many units of component C00001 are in stock at the Fremont CA warehouse?",
+    "agent": "sql",
+    "category": "filtering",
+    "difficulty": "easy",
+    "expected_sql": "SELECT COALESCE(SUM(quantityinstock), 0) AS stock_qty\nFROM inventory\nWHERE componentid = 'C00001'\n  AND warehouselocation = 'Fremont CA';",
+    "expected_answer_type": "number",
+    "tables_involved": ["inventory"]
+    },
+    {
+    "id": 3,
+    "question": "How many distinct suppliers are in the system?",
+    "agent": "sql",
+    "category": "aggregation",
+    "difficulty": "easy",
+    "expected_sql": "SELECT COUNT(DISTINCT supplierid) AS supplier_count\nFROM suppliers;",
+    "expected_answer_type": "number",
+    "tables_involved": ["suppliers"]
+    },
+    {
+    "id": 4,
+    "question": "What is the average reliability score of suppliers based in Taiwan?",
+    "agent": "sql",
+    "category": "aggregation",
+    "difficulty": "easy",
+    "expected_sql": "SELECT AVG(reliabilityscore) AS avg_reliability_taiwan\nFROM suppliers\nWHERE locationcountry = 'Taiwan';",
+    "expected_answer_type": "number",
+    "tables_involved": ["suppliers"]
+    },
+    {
+    "id": 5,
+    "question": "How many vehicles were planned to be produced at Fremont CA on 2024-01-01?",
+    "agent": "sql",
+    "category": "join",
+    "difficulty": "easy",
+    "expected_sql": "SELECT SUM(ps.plannedvehicles) AS total_planned\nFROM production_schedule ps\nJOIN production_lines pl ON ps.lineid = pl.lineid\nWHERE pl.location = 'Fremont CA'\n  AND ps.date = '2024-01-01';",
+    "expected_answer_type": "number",
+    "tables_involved": ["production_schedule", "production_lines"]
+    },
+    {
+    "id": 6,
+    "question": "How many inbound trucks are scheduled to arrive at Fremont CA today?",
+    "agent": "sql",
+    "category": "filtering",
+    "difficulty": "easy",
+    "expected_sql": "SELECT COUNT(*) AS scheduled_trucks_today\nFROM inbound_trucks\nWHERE location = 'Fremont CA'\n  AND status = 'scheduled'\n  AND DATE(eta_utc) = DATE('now');",
+    "expected_answer_type": "number",
+    "tables_involved": ["inbound_trucks"]
+    },
+    {
+    "id": 7,
+    "question": "List the top 5 most expensive components by unit cost.",
+    "agent": "sql",
+    "category": "ranking",
+    "difficulty": "medium",
+    "expected_sql": "SELECT componentid, name, type, unitcost\nFROM components\nORDER BY unitcost DESC\nLIMIT 5;",
+    "expected_answer_type": "table",
+    "tables_involved": ["components"]
+    },
+    {
+    "id": 8,
+    "question": "For each vehicle model, what is the average actual-to-planned production ratio in 2024?",
+    "agent": "sql",
+    "category": "time_series",
+    "difficulty": "medium",
+    "expected_sql": "SELECT pl.vehiclemodel,\n       AVG(CAST(ps.actualvehicles AS REAL) / NULLIF(ps.plannedvehicles, 0)) AS avg_actual_to_planned_ratio\nFROM production_schedule ps\nJOIN production_lines pl ON ps.lineid = pl.lineid\nWHERE strftime('%Y', ps.date) = '2024'\nGROUP BY pl.vehiclemodel;",
+    "expected_answer_type": "table",
+    "tables_involved": ["production_schedule", "production_lines"]
+    },
+    {
+    "id": 9,
+    "question": "Which components have used more quantity in production than has been ordered across all purchase orders?",
+    "agent": "sql",
+    "category": "comparison",
+    "difficulty": "medium",
+    "expected_sql": "SELECT cu.componentid,\n       SUM(cu.totalquantityused) AS total_used,\n       SUM(pli.quantityordered) AS total_ordered,\n       (SUM(cu.totalquantityused) - SUM(pli.quantityordered)) AS usage_minus_orders\nFROM component_usage cu\nJOIN po_line_items pli ON cu.componentid = pli.componentid\nGROUP BY cu.componentid\nHAVING SUM(cu.totalquantityused) > SUM(pli.quantityordered);",
+    "expected_answer_type": "table",
+    "tables_involved": ["component_usage", "po_line_items"]
+    },
+    {
+    "id": 10,
+    "question": "Which suppliers have lead times longer than the overall average lead time?",
+    "agent": "sql",
+    "category": "comparison",
+    "difficulty": "medium",
+    "expected_sql": "SELECT supplierid, name, leadtimedays\nFROM suppliers\nWHERE leadtimedays > (\n  SELECT AVG(leadtimedays) FROM suppliers\n);",
+    "expected_answer_type": "table",
+    "tables_involved": ["suppliers"]
+    },
+    {
+    "id": 11,
+    "question": "For each supplier, what is the total purchase order spend and how many quality checks have failed?",
+    "agent": "sql",
+    "category": "join",
+    "difficulty": "medium",
+    "expected_sql": "SELECT s.supplierid,\n       s.name,\n       SUM(po.totalcost) AS total_po_spend,\n       SUM(CASE WHEN qc.ispass = 0 THEN 1 ELSE 0 END) AS failed_checks\nFROM suppliers s\nLEFT JOIN purchase_orders po ON po.supplierid = s.supplierid\nLEFT JOIN quality_checks qc ON qc.po_id = po.po_id\nGROUP BY s.supplierid, s.name;",
+    "expected_answer_type": "table",
+    "tables_involved": ["suppliers", "purchase_orders", "quality_checks"]
+    },
+    {
+    "id": 12,
+    "question": "Show the total inbound shipping cost by month for the year 2025.",
+    "agent": "sql",
+    "category": "time_series",
+    "difficulty": "medium",
+    "expected_sql": "SELECT strftime('%Y-%m', shipmentdate) AS year_month,\n       SUM(shippingcost) AS total_shipping_cost\nFROM shipments\nWHERE strftime('%Y', shipmentdate) = '2025'\nGROUP BY year_month\nORDER BY year_month;",
+    "expected_answer_type": "table",
+    "tables_involved": ["shipments"]
+    },
+    {
+    "id": 13,
+    "question": "Which components at the Fremont CA warehouse are at risk of stockout in the next 7 days based on the production schedule?",
+    "agent": "sql",
+    "category": "kpi",
+    "difficulty": "hard",
+    "expected_sql": "SELECT i.componentid,\n       c.name,\n       i.quantityinstock AS current_stock,\n       SUM(ps.plannedvehicles * cu.quantitypervehicle) AS required_quantity_next_7d,\n       (i.quantityinstock - SUM(ps.plannedvehicles * cu.quantitypervehicle)) AS projected_surplus\nFROM inventory i\nJOIN components c ON c.componentid = i.componentid\nJOIN component_usage cu ON cu.componentid = i.componentid\nJOIN production_schedule ps ON ps.scheduleid = cu.scheduleid\nJOIN production_lines pl ON pl.lineid = ps.lineid\nWHERE i.warehouselocation = 'Fremont CA'\n  AND DATE(ps.date) BETWEEN DATE('now') AND DATE('now', '+7 days')\nGROUP BY i.componentid, c.name, i.quantityinstock\nHAVING i.quantityinstock < SUM(ps.plannedvehicles * cu.quantitypervehicle);",
+    "expected_answer_type": "table",
+    "tables_involved": ["inventory", "components", "component_usage", "production_schedule", "production_lines"]
+    },
+    {
+    "id": 14,
+    "question": "For each supplier, what is the on-time shipment ratio based on planned delivery dates versus actual shipment dates?",
+    "agent": "sql",
+    "category": "kpi",
+    "difficulty": "hard",
+    "expected_sql": "SELECT s.supplierid,\n       s.name,\n       COUNT(*) AS total_shipments,\n       SUM(CASE WHEN DATE(sh.shipmentdate) <= DATE(po.deliverydateestimate) THEN 1 ELSE 0 END) AS on_time_shipments,\n       CAST(SUM(CASE WHEN DATE(sh.shipmentdate) <= DATE(po.deliverydateestimate) THEN 1 ELSE 0 END) AS REAL) / COUNT(*) AS on_time_ratio\nFROM suppliers s\nJOIN purchase_orders po ON po.supplierid = s.supplierid\nJOIN shipments sh ON sh.po_id = po.po_id\nGROUP BY s.supplierid, s.name;",
+    "expected_answer_type": "table",
+    "tables_involved": ["suppliers", "purchase_orders", "shipments"]
+    },
+    {
+    "id": 15,
+    "question": "What are the days of inventory on hand for Battery components at the Austin TX warehouse, based on average usage over the last 30 days?",
+    "agent": "sql",
+    "category": "kpi",
+    "difficulty": "hard",
+    "expected_sql": "WITH battery_usage AS (\n  SELECT SUM(cu.totalquantityused) AS total_used_30d\n  FROM component_usage cu\n  JOIN production_schedule ps ON ps.scheduleid = cu.scheduleid\n  JOIN production_lines pl ON pl.lineid = ps.lineid\n  JOIN components c ON c.componentid = cu.componentid\n  WHERE pl.location = 'Austin TX'\n    AND c.type = 'Battery'\n    AND DATE(ps.date) BETWEEN DATE('now', '-30 days') AND DATE('now')\n),\nbattery_stock AS (\n  SELECT SUM(i.quantityinstock) AS current_stock\n  FROM inventory i\n  JOIN components c ON c.componentid = i.componentid\n  WHERE i.warehouselocation = 'Austin TX'\n    AND c.type = 'Battery'\n)\nSELECT bs.current_stock,\n       bu.total_used_30d / 30.0 AS avg_daily_usage,\n       bs.current_stock / (bu.total_used_30d / 30.0) AS days_of_inventory\nFROM battery_stock bs, battery_usage bu;",
+    "expected_answer_type": "kpi",
+    "tables_involved": ["component_usage", "production_schedule", "production_lines", "components", "inventory"]
+    },
+    {
+    "id": 16,
+    "question": "What is the inbound dock schedule at Fremont CA for the next 2 hours?",
+    "agent": "docking",
+    "category": "real_time_schedule",
+    "difficulty": "easy",
+    "expected_api": "POST /dock/schedule/query",
+    "expected_answer_type": "schedule",
+    "tables_involved": ["dock_assignments", "inbound_trucks", "dock_doors"]
+    },
+    {
+    "id": 17,
+    "question": "Is door FCX-D12 currently active and able to accept jobs?",
+    "agent": "docking",
+    "category": "door_status",
+    "difficulty": "easy",
+    "expected_api": "POST /dock/door/status",
+    "expected_answer_type": "boolean",
+    "tables_involved": ["dock_doors"]
+    },
+    {
+    "id": 18,
+    "question": "Which outbound loads are planned to depart from Fremont CA tonight (before midnight)?",
+    "agent": "docking",
+    "category": "real_time_schedule",
+    "difficulty": "easy",
+    "expected_api": "POST /dock/schedule/query",
+    "expected_answer_type": "schedule",
+    "tables_involved": ["outbound_loads"]
+    },
+    {
+    "id": 19,
+    "question": "What is the current yard queue at Shanghai and the order of trucks waiting?",
+    "agent": "docking",
+    "category": "analysis",
+    "difficulty": "easy",
+    "expected_api": "POST /dock/queue/query",
+    "expected_answer_type": "list",
+    "tables_involved": ["yard_queue", "inbound_trucks"]
+    },
+    {
+    "id": 20,
+    "question": "Which dock doors at Fremont CA will be idle in the next 30 minutes?",
+    "agent": "docking",
+    "category": "door_status",
+    "difficulty": "medium",
+    "expected_api": "POST /dock/door/status",
+    "expected_answer_type": "list",
+    "tables_involved": ["dock_doors", "dock_assignments"]
+    },
+    {
+    "id": 21,
+    "question": "Given the current inbound schedule at Fremont CA, which truck is expected to experience the longest waiting time before unloading?",
+    "agent": "docking",
+    "category": "analysis",
+    "difficulty": "medium",
+    "expected_api": "POST /dock/analysis/wait_times",
+    "expected_answer_type": "table",
+    "tables_involved": ["inbound_trucks", "dock_assignments", "dock_doors", "yard_queue"]
+    },
+    {
+    "id": 22,
+    "question": "For Fremont CA over the next hour, do we have enough crews and forklifts to cover all scheduled dock assignments?",
+    "agent": "docking",
+    "category": "analysis",
+    "difficulty": "medium",
+    "expected_api": "POST /dock/resources/check",
+    "expected_answer_type": "analysis",
+    "tables_involved": ["dock_resources", "dock_assignments"]
+    },
+    {
+    "id": 23,
+    "question": "Resequence the inbound queue at Fremont CA for the next 2 hours to prioritize higher-priority trucks without causing outbound loads to miss their cutoff times.",
+    "agent": "docking",
+    "category": "optimization",
+    "difficulty": "medium",
+    "expected_api": "POST /dock/optimization/sequence",
+    "expected_answer_type": "optimization_plan",
+    "tables_involved": ["inbound_trucks", "yard_queue", "dock_assignments", "outbound_loads"]
+    },
+    {
+    "id": 24,
+    "question": "Generate an optimized door and crew assignment plan for all inbound and outbound work at Fremont CA over the next 4 hours, minimizing truck wait times while respecting door activity and resource limits.",
+    "agent": "docking",
+    "category": "optimization",
+    "difficulty": "hard",
+    "expected_api": "POST /dock/optimization/plan",
+    "expected_answer_type": "plan",
+    "tables_involved": ["dock_assignments", "dock_doors", "dock_resources", "inbound_trucks", "outbound_loads"]
+    },
+    {
+    "id": 25,
+    "question": "Identify any scheduling conflicts at Fremont CA where multiple jobs are double-booked on the same door or available crews/forklifts are over-allocated, and propose adjustments to resolve them.",
+    "agent": "docking",
+    "category": "analysis",
+    "difficulty": "hard",
+    "expected_api": "POST /dock/conflicts/analyze",
+    "expected_answer_type": "analysis",
+    "tables_involved": ["dock_assignments", "dock_doors", "dock_resources"]
+    }
+    ]
+    

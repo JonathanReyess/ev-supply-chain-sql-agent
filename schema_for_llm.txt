@@ -1,0 +1,497 @@
+================================================================================
+EV SUPPLY CHAIN DATABASE SCHEMA
+================================================================================
+
+================================================================================
+TABLE: component_usage
+================================================================================
+
+Columns:
+  - usageid: TEXT
+  - scheduleid: TEXT
+  - componentid: TEXT
+  - quantitypervehicle: INTEGER
+  - totalquantityused: INTEGER
+
+Total Rows: 19974
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    usageid: U09768947
+    scheduleid: SCH00002661
+    componentid: C00195
+    quantitypervehicle: 3
+    totalquantityused: 375
+
+  Row 2:
+    usageid: U25254849
+    scheduleid: SCH00002661
+    componentid: C00160
+    quantitypervehicle: 2
+    totalquantityused: 250
+
+================================================================================
+TABLE: components
+================================================================================
+
+Columns:
+  - componentid: TEXT
+  - name: TEXT
+  - type: TEXT
+  - unitcost: REAL
+  - targetstock: INTEGER
+  - supplierid: TEXT
+
+Total Rows: 300
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    componentid: C00001
+    name: Cell - under
+    type: Battery
+    unitcost: 6383.83
+    targetstock: 43006
+    supplierid: S0022
+
+  Row 2:
+    componentid: C00002
+    name: Cell - every
+    type: Battery
+    unitcost: 953.08
+    targetstock: 29492
+    supplierid: S0011
+
+================================================================================
+TABLE: dock_assignments
+================================================================================
+
+Columns:
+  - assignment_id: TEXT
+  - location: TEXT
+  - door_id: TEXT
+  - job_type: TEXT
+  - ref_id: TEXT
+  - start_utc: TEXT
+  - end_utc: TEXT
+  - crew: TEXT
+  - created_utc: TEXT
+  - status: TEXT
+
+Total Rows: 219
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    assignment_id: ASG-FCX-71695
+    location: Fremont CA
+    door_id: FCX-D12
+    job_type: inbound
+    ref_id: T-FCX-617
+    start_utc: 2025-11-19 16:59:33
+    end_utc: 2025-11-19 17:29:33
+    crew: Crew-5
+    created_utc: 2025-11-19 16:45:00
+    status: scheduled
+
+  Row 2:
+    assignment_id: ASG-FCX-22128
+    location: Fremont CA
+    door_id: FCX-D12
+    job_type: inbound
+    ref_id: T-FCX-958
+    start_utc: 2025-11-19 17:31:33
+    end_utc: 2025-11-19 18:16:33
+    crew: Crew-3
+    created_utc: 2025-11-19 16:45:00
+    status: scheduled
+
+================================================================================
+TABLE: dock_doors
+================================================================================
+
+Columns:
+  - door_id: TEXT
+  - location: TEXT
+  - is_active: INTEGER
+
+Total Rows: 56
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    door_id: FCX-D01
+    location: Fremont CA
+    is_active: 1
+
+  Row 2:
+    door_id: FCX-D02
+    location: Fremont CA
+    is_active: 1
+
+================================================================================
+TABLE: dock_resources
+================================================================================
+
+Columns:
+  - location: TEXT
+  - slot_start_utc: TIMESTAMP
+  - slot_end_utc: TIMESTAMP
+  - crews: INTEGER
+  - forklifts: INTEGER
+
+Total Rows: 480
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    location: Fremont CA
+    slot_start_utc: 2025-11-19 16:45:00
+    slot_end_utc: 2025-11-19 17:00:00
+    crews: 3
+    forklifts: 4
+
+  Row 2:
+    location: Fremont CA
+    slot_start_utc: 2025-11-19 17:00:00
+    slot_end_utc: 2025-11-19 17:15:00
+    crews: 4
+    forklifts: 4
+
+================================================================================
+TABLE: inbound_trucks
+================================================================================
+
+Columns:
+  - truck_id: TEXT
+  - po_id: TEXT
+  - location: TEXT
+  - eta_utc: TIMESTAMP
+  - unload_min: INTEGER
+  - priority: INTEGER
+  - status: TEXT
+
+Total Rows: 196
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    truck_id: T-FCX-617
+    po_id: PO001409
+    location: Fremont CA
+    eta_utc: 2025-11-19 16:59:33
+    unload_min: 30
+    priority: 1
+    status: scheduled
+
+  Row 2:
+    truck_id: T-FCX-730
+    po_id: PO000253
+    location: Fremont CA
+    eta_utc: 2025-11-19 23:05:33
+    unload_min: 20
+    priority: 0
+    status: scheduled
+
+================================================================================
+TABLE: inventory
+================================================================================
+
+Columns:
+  - inventoryid: TEXT
+  - componentid: TEXT
+  - warehouselocation: TEXT
+  - quantityinstock: INTEGER
+  - lastupdated: TEXT
+
+Total Rows: 12000
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    inventoryid: I00000001
+    componentid: C00078
+    warehouselocation: Austin TX
+    quantityinstock: 3632
+    lastupdated: 2025-09-07 11:45:29
+
+  Row 2:
+    inventoryid: I00000002
+    componentid: C00142
+    warehouselocation: Shanghai
+    quantityinstock: 88
+    lastupdated: 2024-12-27 11:45:29
+
+================================================================================
+TABLE: outbound_loads
+================================================================================
+
+Columns:
+  - load_id: TEXT
+  - location: TEXT
+  - cutoff_utc: TEXT
+  - load_min: INTEGER
+  - carrier: TEXT
+  - priority: INTEGER
+  - status: TEXT
+
+Total Rows: 124
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    load_id: L-FCX-528
+    location: Fremont CA
+    cutoff_utc: 2025-11-20 00:40:00
+    load_min: 20
+    carrier: UPS
+    priority: 3
+    status: planned
+
+  Row 2:
+    load_id: L-FCX-438
+    location: Fremont CA
+    cutoff_utc: 2025-11-20 02:03:00
+    load_min: 30
+    carrier: R+L
+    priority: 0
+    status: planned
+
+================================================================================
+TABLE: po_line_items
+================================================================================
+
+Columns:
+  - lineitemid: TEXT
+  - po_id: TEXT
+  - componentid: TEXT
+  - quantityordered: INTEGER
+  - unitcostatorder: REAL
+  - linetotal: REAL
+
+Total Rows: 4554
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    lineitemid: L00000001
+    po_id: PO000001
+    componentid: C00147
+    quantityordered: 287
+    unitcostatorder: 432.08
+    linetotal: 124006.95999999999
+
+  Row 2:
+    lineitemid: L00000002
+    po_id: PO000001
+    componentid: C00075
+    quantityordered: 494
+    unitcostatorder: 7920.3
+    linetotal: 3912628.2
+
+================================================================================
+TABLE: production_lines
+================================================================================
+
+Columns:
+  - lineid: TEXT
+  - location: TEXT
+  - vehiclemodel: TEXT
+  - capacityperday: INTEGER
+
+Total Rows: 5
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    lineid: PL001
+    location: Fremont CA
+    vehiclemodel: Model G
+    capacityperday: 149
+
+  Row 2:
+    lineid: PL002
+    location: Austin TX
+    vehiclemodel: Model G
+    capacityperday: 79
+
+================================================================================
+TABLE: production_schedule
+================================================================================
+
+Columns:
+  - scheduleid: TEXT
+  - lineid: TEXT
+  - date: TEXT
+  - plannedvehicles: INTEGER
+  - actualvehicles: INTEGER
+  - modelproduced: TEXT
+
+Total Rows: 3655
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    scheduleid: SCH00000001
+    lineid: PL001
+    date: 2024-01-01
+    plannedvehicles: 148
+    actualvehicles: 140
+    modelproduced: Model G
+
+  Row 2:
+    scheduleid: SCH00000002
+    lineid: PL002
+    date: 2024-01-01
+    plannedvehicles: 71
+    actualvehicles: 59
+    modelproduced: Model G
+
+================================================================================
+TABLE: purchase_orders
+================================================================================
+
+Columns:
+  - po_id: TEXT
+  - supplierid: TEXT
+  - orderdate: TEXT
+  - deliverydateestimate: TEXT
+  - status: TEXT
+  - totalcost: REAL
+
+Total Rows: 1500
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    po_id: PO000001
+    supplierid: S0008
+    orderdate: 2025-12-05 05:54:28
+    deliverydateestimate: 2026-02-07
+    status: Pending
+    totalcost: 0.0
+
+  Row 2:
+    po_id: PO000002
+    supplierid: S0060
+    orderdate: 2024-03-19 21:53:24
+    deliverydateestimate: 2024-05-26
+    status: Shipped
+    totalcost: 0.0
+
+================================================================================
+TABLE: quality_checks
+================================================================================
+
+Columns:
+  - checkid: TEXT
+  - po_id: TEXT
+  - componentid: TEXT
+  - checkdate: TEXT
+  - ispass: INTEGER
+  - defecttype: TEXT
+
+Total Rows: 310
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    checkid: Q49557403
+    po_id: PO001447
+    componentid: C00113
+    checkdate: 2025-06-02 17:58:47
+    ispass: 1
+    defecttype: None
+
+  Row 2:
+    checkid: Q86680604
+    po_id: PO000197
+    componentid: C00029
+    checkdate: 2024-09-24 00:53:23
+    ispass: 0
+    defecttype: None
+
+================================================================================
+TABLE: shipments
+================================================================================
+
+Columns:
+  - shipmentid: TEXT
+  - po_id: TEXT
+  - trackingnumber: TEXT
+  - shipmentdate: TEXT
+  - currentstatus: TEXT
+  - shippingcost: REAL
+
+Total Rows: 1500
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    shipmentid: SH00000001
+    po_id: PO000001
+    trackingnumber: TN-0150713806-Cg
+    shipmentdate: 2025-12-16 04:06:55
+    currentstatus: Pending
+    shippingcost: 0.0
+
+  Row 2:
+    shipmentid: SH00000002
+    po_id: PO000002
+    trackingnumber: TN-7351045847-tm
+    shipmentdate: 2024-04-07 21:56:51
+    currentstatus: Shipped
+    shippingcost: 0.0
+
+================================================================================
+TABLE: suppliers
+================================================================================
+
+Columns:
+  - supplierid: TEXT
+  - name: TEXT
+  - locationcountry: TEXT
+  - locationcity: TEXT
+  - reliabilityscore: INTEGER
+  - leadtimedays: INTEGER
+
+Total Rows: 60
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    supplierid: S0001
+    name: Rodriguez, Figueroa and Sanchez
+    locationcountry: Taiwan
+    locationcity: Lake Curtis
+    reliabilityscore: 73
+    leadtimedays: 8
+
+  Row 2:
+    supplierid: S0002
+    name: Mcclain, Miller and Henderson
+    locationcountry: Taiwan
+    locationcity: North Jefferyhaven
+    reliabilityscore: 78
+    leadtimedays: 22
+
+================================================================================
+TABLE: yard_queue
+================================================================================
+
+Columns:
+  - location: TEXT
+  - truck_id: TEXT
+  - position: INTEGER
+  - created_utc: TEXT
+
+Total Rows: 1
+
+Sample Data (first 2 rows):
+
+  Row 1:
+    location: Shanghai
+    truck_id: T-SXX-388
+    position: 3
+    created_utc: 2025-11-19 16:45:00
