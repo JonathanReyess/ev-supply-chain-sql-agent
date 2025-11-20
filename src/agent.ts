@@ -213,6 +213,12 @@ Analyze the question and identify the relevant tables, columns, and relationship
   const result = JSON.parse(jsonText);
   state.linkedSchema = result;
   console.log('  ✓ Identified tables:', result.tables);
+
+  // --- START: ADDED COOLDOWN ---
+  console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+  await sleep(20000); 
+  // --- END: ADDED COOLDOWN ---
+  
   return `Schema linking complete. Identified ${result.tables.length} relevant tables: ${result.tables.join(', ')}. Reasoning: ${result.reasoning}`;
 }
 
@@ -259,107 +265,34 @@ Analyze the question and break down the KPI into its core components. Return ONL
   const result = JSON.parse(jsonText);
   state.kpiDecomposition = result;
   console.log('  ✓ Decomposed KPI:', result.kpi_name);
+
+  // --- START: ADDED COOLDOWN ---
+  console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+  await sleep(20000); 
+  // --- END: ADDED COOLDOWN ---
+
   return `KPI decomposed: ${result.kpi_name}. Primary calculation: ${result.primary_calculation?.operation} on ${result.primary_calculation?.target}`;
 }
 
 /**
- * Tool 4: Subproblem Identification 
+ * Tool 4: Generate Query Plan (Combination of Subproblem Identification & Query Planning)
  */
-async function toolSubproblemIdentification(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
-  console.log('\n🧩 [Tool: Subproblem Identification] Breaking down query...');
+async function toolGenerateQueryPlan(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
+  console.log('\n🤔 [Tool: Generate Query Plan] Decomposing query and generating plan...');
   
   if (!state.linkedSchema) {
     return 'Error: Schema linking not performed. Please link schema first.';
   }
 
-  const prompt = `You are a SQL query decomposition expert. Given a natural language question, break it down into SQL clause-level subproblems.
+  // Use the KPI Decomposition if it exists, otherwise rely purely on the question and schema
+  const decompositionContext = state.kpiDecomposition 
+    ? `## KPI Decomposition\n${JSON.stringify(state.kpiDecomposition, null, 2)}`
+    : ``;
+    
+  // NOTE: The prompt now needs to instruct the LLM to perform BOTH decomposition and planning.
+  const prompt = `You are a specialized SQL query planning expert. Your task is to analyze the user's question, decompose it into SQL components, and then generate a step-by-step query execution plan.
 
-Question: "${state.question}"
-
-Relevant tables: ${state.linkedSchema.tables.join(', ')}
-
-Identify which SQL clauses are needed and what each should accomplish. Return the JSON object describing the clauses.`;
-  // 👆 END FIX
-
-  // FIX 2: Use the imported Type enum for schema definition
-  const subproblemSchema: Schema = {
-    type: Type.OBJECT,
-    description: "A decomposition of the natural language question into SQL clauses.",
-    properties: {
-      clauses: {
-        type: Type.OBJECT,
-        description: "A dictionary where keys are SQL clauses and values are descriptions.",
-        properties: {
-          "SELECT": { type: Type.STRING },
-          "FROM": { type: Type.STRING },
-          "JOIN": { type: Type.STRING },
-          "WHERE": { type: Type.STRING },
-          "GROUP BY": { type: Type.STRING },
-          "HAVING": { type: Type.STRING },
-          "ORDER BY": { type: Type.STRING },
-          "LIMIT": { type: Type.STRING },
-        },
-      }
-    },
-    required: ["clauses"],
-  };
-
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: {
-      temperature: TEMPERATURE,
-      responseMimeType: 'application/json',
-      responseSchema: subproblemSchema,
-    },
-  });
-
-  // Track token usage
-  tokenTracker.push({
-    promptTokens: response.usageMetadata?.promptTokenCount || 0,
-    completionTokens: response.usageMetadata?.candidatesTokenCount || 0,
-    totalTokens: response.usageMetadata?.totalTokenCount || 0,
-  });
-
-  // Use the robust cleanJsonString function
-  const jsonText = cleanJsonString(response.text || '{}');
-  
-  try {
-    const result = JSON.parse(jsonText); 
-    state.subproblems = result;
-    const identifiedClauses = Object.keys(result.clauses || {});
-    console.log('  ✓ Identified clauses:', identifiedClauses);
-    return `Subproblems identified. Required SQL clauses: ${identifiedClauses.join(', ')}`;
-  } catch (e) {
-      console.error(`Failed to parse JSON for subproblem identification. Error: ${e}`);
-      console.error('Original (uncleaned) text:', response.text);
-      console.error('Cleaned text that failed:', jsonText);
-      return `Tool Error: Failed to parse LLM response into JSON. Error: ${e}`;
-  }
-}
-
-/**
- * Tool 5: Query Planning 
- */
-async function toolQueryPlanning(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
-  console.log('\n🤔 [Tool: Query Planning] Generating execution plan...');
-  
-  if (!state.linkedSchema) {
-    return 'Error: Schema linking not performed.';
-  }
-
-  const planInput = state.kpiDecomposition || state.subproblems;
-  if (!planInput) {
-    return 'Error: No decomposition available. Run KPI decomposition or subproblem identification first.';
-  }
-
-  const isKpiPlan = !!state.kpiDecomposition;
-  const inputSection = isKpiPlan 
-    ? `## KPI Decomposition\n${JSON.stringify(planInput, null, 2)}`
-    : `## Identified Clauses\n${JSON.stringify(planInput.clauses, null, 2)}`;
-
-  // NOTE: Assuming your prompts/query-planning.md path is correct
-  const prompt = `${readFileSync(join(__dirname, 'prompts/query-planning.md'), 'utf-8')}
+${readFileSync(join(__dirname, 'prompts/query-planning.md'), 'utf-8')}
 
 ## Question
 "${state.question}"
@@ -369,9 +302,9 @@ Tables: ${state.linkedSchema.tables.join(', ')}
 Columns: ${JSON.stringify(state.linkedSchema.columns, null, 2)}
 Foreign Keys: ${JSON.stringify(state.linkedSchema.foreign_keys, null, 2)}
 
-${inputSection}
+${decompositionContext}
 
-Create a detailed step-by-step query plan using Chain-of-Thought reasoning. Return ONLY valid JSON as specified.`;
+Create a detailed step-by-step query plan using Chain-of-Thought reasoning. Ensure the plan addresses the goal, data sources, joins, filters, and aggregations using the provided Schema Information. Return ONLY valid JSON as specified in the 'Output Format' section of the Query Plan Agent instructions.`;
 
   const response = await ai.models.generateContent({
     model: MODEL,
@@ -390,14 +323,32 @@ Create a detailed step-by-step query plan using Chain-of-Thought reasoning. Retu
   });
 
   const jsonText = cleanJsonString(response.text || '{}'); // Apply fix
-  const result = JSON.parse(jsonText);
-  state.queryPlan = result;
-  console.log('  ✓ Generated plan with', result.steps?.length || 0, 'steps');
-  return `Query plan created with ${result.steps?.length || 0} steps. Strategy: ${result.final_strategy}`;
+  
+  try {
+    const result = JSON.parse(jsonText);
+    state.queryPlan = result;
+    // NOTE: state.subproblems is no longer needed/set
+    console.log('  ✓ Generated plan with', result.steps?.length || 0, 'steps');
+
+    // --- START: ADDED COOLDOWN ---
+    console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+    await sleep(20000); 
+    // --- END: ADDED COOLDOWN ---
+    
+    return `Query plan created with ${result.steps?.length || 0} steps. Strategy: ${result.final_strategy}`;
+  } catch (e) {
+      console.error(`Failed to parse JSON for query plan. Error: ${e}`);
+      console.error('Original (uncleaned) text:', response.text);
+      console.error('Cleaned text that failed:', jsonText);
+      return `Tool Error: Failed to parse LLM response into JSON. Error: ${e}`;
+  }
 }
 
+// REMOVED: toolSubproblemIdentification (Tool 4)
+// REMOVED: toolQueryPlanning (Tool 5) -> replaced by toolGenerateQueryPlan (New Tool 4)
+
 /**
- * Tool 6: SQL Generation
+ * Tool 5: SQL Generation (Tool number shifts down)
  */
 async function toolSQLGeneration(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
   console.log('\n📝 [Tool: SQL Generation] Generating SQL query...');
@@ -445,11 +396,17 @@ Generate the SQL query that implements this plan. Return ONLY the SQL query, no 
 
   state.currentSQL = cleanedSQL;
   console.log('  ✓ Generated SQL');
+
+  // --- START: ADDED COOLDOWN ---
+  console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+  await sleep(20000); 
+  // --- END: ADDED COOLDOWN ---
+
   return `SQL query generated: ${cleanedSQL.substring(0, 100)}...`;
 }
 
 /**
- * Tool 7: Execute SQL
+ * Tool 6: Execute SQL
  */
 async function toolExecuteSQL(state: AgentState): Promise<string> {
   console.log('\n▶️ [Tool: Execute SQL] Running query...');
@@ -481,7 +438,7 @@ async function toolExecuteSQL(state: AgentState): Promise<string> {
 }
 
 /**
- * Tool 8: Error Correction 
+ * Tool 7: Error Correction 
  */
 async function toolErrorCorrection(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
   console.log('\n🔧 [Tool: Error Correction] Analyzing and fixing error...');
@@ -537,6 +494,11 @@ Analyze this error using the taxonomy and provide a structured correction plan. 
   const correctionPlan = JSON.parse(correctionPlanJsonText);
   console.log('  ✓ Error categories:', correctionPlan.error_categories);
 
+  // --- START: ADDED COOLDOWN (Part 1/2) ---
+  console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+  await sleep(20000); 
+  // --- END: ADDED COOLDOWN (Part 1/2) ---
+
   // Generate corrected SQL
   const correctionSQLPrompt = `You are an expert SQL query corrector. Fix the SQL query based on the correction plan.
 
@@ -579,11 +541,17 @@ Generate the corrected SQL query that addresses all issues identified in the cor
   state.currentSQL = cleanedSQL;
   state.correctionAttempts++;
   console.log('  ✓ Generated corrected SQL');
+
+  // --- START: ADDED COOLDOWN (Part 2/2) ---
+  console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+  await sleep(20000); 
+  // --- END: ADDED COOLDOWN (Part 2/2) ---
+  
   return `SQL corrected (attempt ${state.correctionAttempts}/${MAX_CORRECTION_ATTEMPTS}). Error categories: ${correctionPlan.error_categories.join(', ')}`;
 }
 
 /**
- * Tool 9: Visualize Results
+ * Tool 8: Visualize Results
  */
 async function toolVisualizeResults(state: AgentState, tokenTracker: TokenUsage[]): Promise<string> {
   console.log('\n📈 [Tool: Visualize Results] Generating visualization...');
@@ -630,6 +598,12 @@ NOTE: Ensure your response is a valid JSON object matching the 'generate_plot' i
 
     const plotParamsJsonText = cleanJsonString(response.text || '{}'); // Apply fix
     const plotParams: PlottingInput = JSON.parse(plotParamsJsonText);
+
+    // --- START: ADDED COOLDOWN ---
+    console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits...');
+    await sleep(20000); 
+    // --- END: ADDED COOLDOWN ---
+    
     // NOTE: query_results is added here, outside the LLM call
     plotParams.query_results = results;
 
@@ -653,8 +627,8 @@ const TOOL_DESCRIPTIONS = {
   load_schema: "Load the database schema to understand available tables and columns",
   schema_linking: "Identify relevant tables, columns, and relationships for the question",
   kpi_decomposition: "Break down a KPI metric into its component calculations (use for complex metrics)",
-  subproblem_identification: "Decompose the question into SQL clause-level subproblems (use for standard queries)",
-  query_planning: "Create a step-by-step execution plan for the SQL query",
+  // COMBINED: subproblem_identification is now part of generate_query_plan
+  generate_query_plan: "Decompose the query into SQL clauses and create a step-by-step execution plan",
   sql_generation: "Generate the actual SQL query from the execution plan",
   execute_sql: "Execute the SQL query against the database",
   error_correction: "Analyze and fix SQL execution errors",
@@ -705,8 +679,8 @@ At each step, you should:
 
 Guidelines:
 - Always start by loading the schema
-- For KPI questions (metrics like "average time", "total count"), use kpi_decomposition
-- For standard queries, use subproblem_identification
+- For KPI questions (metrics like "average time", "total count"), use kpi_decomposition, then generate_query_plan.
+- For standard queries, skip kpi_decomposition and go straight to generate_query_plan.
 - After generating SQL, always execute it
 - If execution fails, use error_correction (up to ${MAX_CORRECTION_ATTEMPTS} times)
 - Consider visualization for numerical results
@@ -757,6 +731,7 @@ Choose your next action. Respond with either:
 
     const promptForAgent = baseSystemPrompt + conversationContext + currentStateSummary + `\n\nWhat is your next action?`;
 
+    // The old debug block is now removed/commented out as requested
     // 🐛 DEBUG BLOCK: Print the full context being sent to the LLM
     // console.log('\n\n' + '<<<'+'='.repeat(30) + ' AGENT PROMPT CONTEXT ' + '='.repeat(30) + '>>>');
     // console.log(promptForAgent);
@@ -782,6 +757,14 @@ Choose your next action. Respond with either:
         });
         
         consecutiveApiFailures = 0;
+        
+        // --- START: ADDED COOLDOWN ---
+        if (response) { 
+            console.log('\n⏸️ Implementing fixed 20s cooldown to respect API limits (Orchestrator Decision)...');
+            await sleep(20000); 
+        }
+        // --- END: ADDED COOLDOWN ---
+
     } catch (error) {
         const errorString = String(error);
         if (errorString.includes('429') || errorString.includes('503')) {
@@ -850,22 +833,19 @@ Choose your next action. Respond with either:
           case 'kpi_decomposition':
             toolResult = await toolKPIDecomposition(state, tokenTracker);
             break;
-          case 'subproblem_identification':
-            toolResult = await toolSubproblemIdentification(state, tokenTracker);
+          case 'generate_query_plan': // NEW/COMBINED TOOL
+            toolResult = await toolGenerateQueryPlan(state, tokenTracker);
             break;
-          case 'query_planning':
-            toolResult = await toolQueryPlanning(state, tokenTracker);
-            break;
-          case 'sql_generation':
+          case 'sql_generation': // Tool index shifted from 6 to 5
             toolResult = await toolSQLGeneration(state, tokenTracker);
             break;
-          case 'execute_sql':
+          case 'execute_sql': // Tool index shifted from 7 to 6
             toolResult = await toolExecuteSQL(state);
             break;
-          case 'error_correction':
+          case 'error_correction': // Tool index shifted from 8 to 7
             toolResult = await toolErrorCorrection(state, tokenTracker);
             break;
-          case 'visualize_results':
+          case 'visualize_results': // Tool index shifted from 9 to 8
             toolResult = await toolVisualizeResults(state, tokenTracker);
             break;
           default:
