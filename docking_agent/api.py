@@ -1,11 +1,9 @@
 import os
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any
 import sqlite3
 from datetime import datetime, timedelta
-import time
-import json
 
 # Load env from local .env before importing router (so it sees flags like USE_LLM_ROUTER)
 try:
@@ -19,10 +17,8 @@ except Exception:
 
 try:
     from . import llm_router
-    from . import call_logger
 except ImportError:
     import llm_router
-    import call_logger
 
 app = FastAPI(title="Docking Agent API")
 
@@ -758,94 +754,58 @@ def _extract_structured_context(question: str) -> Dict[str, Any]:
 
 @app.post("/qa")
 def qa(req: QARequest):
-    """
-    Main QA endpoint with integrated call logging for LLM-as-a-judge evaluation.
+    # Pre-process question to extract structured context (orchestrator-style)
+    context = _extract_structured_context(req.question)
     
-    Logs every call to agent_call_logs table with:
-    - User question
-    - Router intent and slots
-    - Handler execution details
-    - SQL queries
-    - Performance metrics
-    - Errors (if any)
-    - Answer summary
-    """
-    start_time = time.time()
-    handler_name = None
-    sql_or_query = None
-    rows_returned = None
-    error = None
-    answer_summary = None
+    # Route through LLM with systematic approach
+    intent, slots, conf, source = parse_question(req.question, context=context)
     
-    try:
-        # Pre-process question to extract structured context (orchestrator-style)
-        context = _extract_structured_context(req.question)
-        
-        # Route through LLM with systematic approach
-        intent, slots, conf, source = parse_question(req.question, context=context)
-        
-        # If location is missing but might be in the question, extract it
-        if not slots.get("location") and req.question:
-            extracted_loc = _extract_location_from_text(req.question)
-            if extracted_loc:
-                slots["location"] = extracted_loc
-        
+    # If location is missing but might be in the question, extract it
+    if not slots.get("location") and req.question:
+        extracted_loc = _extract_location_from_text(req.question)
+        if extracted_loc:
+            slots["location"] = extracted_loc
+    
     if intent == "earliest_eta_part":
-            handler_name = "handle_earliest_eta_part"
-            sql_or_query = f"Query for part={slots.get('part')}, location={slots.get('location')}"
         out = handle_earliest_eta_part(slots.get("part",""), slots.get("location",""))
     elif intent == "why_reassigned":
-            handler_name = "handle_why_reassigned"
-            sql_or_query = f"Query for door={slots.get('door')}"
         out = handle_why_reassigned(slots.get("door",""))
     elif intent == "door_schedule":
-            handler_name = "handle_door_schedule"
-            loc = slots.get("location","")
-            if not loc:
-                loc = _extract_location_from_text(req.question)
-            sql_or_query = f"Query for location={loc or 'global'}"
-            out = handle_door_schedule(loc) if loc else handle_global_schedule()
-        elif intent == "count_schedule":
-            handler_name = "handle_count_schedule"
-            loc = slots.get("location") or ""
-            if not loc:
-                loc = _extract_location_from_text(req.question)
-            job_type = slots.get("job_type") or ""
-            horizon_min = slots.get("horizon_min")
-            sql_or_query = f"COUNT query: location={loc or 'all'}, job_type={job_type or 'all'}, horizon={horizon_min}"
-            out = handle_count_schedule(loc if loc else None, job_type if job_type else None, horizon_min)
-        elif intent == "optimize_schedule":
-            handler_name = "handle_optimize_schedule"
-            loc = slots.get("location","")
-            if not loc:
-                loc = _extract_location_from_text(req.question)
-            horizon_min = slots.get("horizon_min") or 240
-            sql_or_query = f"Optimization query: location={loc}, horizon={horizon_min}min"
-            if loc:
-                out = handle_optimize_schedule(loc, horizon_min)
-            else:
-                out = {"answer": None, "explanation": "Location required for optimization", "inputs": {}}
+        loc = slots.get("location","")
+        if not loc:
+            loc = _extract_location_from_text(req.question)
+        out = handle_door_schedule(loc) if loc else handle_global_schedule()
+    elif intent == "count_schedule":
+        loc = slots.get("location") or ""
+        if not loc:
+            loc = _extract_location_from_text(req.question)
+        job_type = slots.get("job_type") or ""
+        horizon_min = slots.get("horizon_min")
+        out = handle_count_schedule(loc if loc else None, job_type if job_type else None, horizon_min)
+    elif intent == "optimize_schedule":
+        loc = slots.get("location","")
+        if not loc:
+            loc = _extract_location_from_text(req.question)
+        horizon_min = slots.get("horizon_min") or 240
+        if loc:
+            out = handle_optimize_schedule(loc, horizon_min)
         else:
-            # Re-ask LLM with a best-effort routing prompt, then call DB-backed handlers
-            intent2, meta2, conf2 = llm_router.llm_route_best_effort(req.question)
-            slots2 = meta2.get("slots", {}) if isinstance(meta2, dict) else {}
-            if intent2 == "earliest_eta_part":
-                handler_name = "handle_earliest_eta_part"
-                sql_or_query = f"Query for part={slots2.get('part')}, location={slots2.get('location')}"
-                out = handle_earliest_eta_part(slots2.get("part",""), slots2.get("location",""))
-            elif intent2 == "why_reassigned":
-                handler_name = "handle_why_reassigned"
-                sql_or_query = f"Query for door={slots2.get('door')}"
-                out = handle_why_reassigned(slots2.get("door",""))
-            elif intent2 == "count_schedule":
-                handler_name = "handle_count_schedule"
-                loc = slots2.get("location") or ""
-                if not loc:
-                    loc = _extract_location_from_text(req.question)
-                job_type = slots2.get("job_type") or ""
-                horizon_min = slots2.get("horizon_min")
-                sql_or_query = f"COUNT query: location={loc or 'all'}, job_type={job_type or 'all'}, horizon={horizon_min}"
-                out = handle_count_schedule(loc if loc else None, job_type if job_type else None, horizon_min)
+            out = {"answer": None, "explanation": "Location required for optimization", "inputs": {}}
+    else:
+        # Re-ask LLM with a best-effort routing prompt, then call DB-backed handlers
+        intent2, meta2, conf2 = llm_router.llm_route_best_effort(req.question)
+        slots2 = meta2.get("slots", {}) if isinstance(meta2, dict) else {}
+        if intent2 == "earliest_eta_part":
+            out = handle_earliest_eta_part(slots2.get("part",""), slots2.get("location",""))
+        elif intent2 == "why_reassigned":
+            out = handle_why_reassigned(slots2.get("door",""))
+        elif intent2 == "count_schedule":
+            loc = slots2.get("location") or ""
+            if not loc:
+                loc = _extract_location_from_text(q)
+            job_type = slots2.get("job_type") or ""
+            horizon_min = slots2.get("horizon_min")
+            out = handle_count_schedule(loc if loc else None, job_type if job_type else None, horizon_min)
         else:  # door_schedule default, but tailor to question ids if present
             q = req.question or ""
             import re
@@ -903,333 +863,19 @@ def qa(req: QARequest):
                             # Check for "doors" or "schedule" with location
                             if ("door" in q.lower() or "schedule" in q.lower()) and loc_from_text:
                                 out = handle_door_schedule(loc_from_text)
-    else:
+                            else:
                                 loc = slots2.get("location") or loc_from_text
                                 out = handle_door_schedule(loc) if loc else handle_global_schedule()
-            # prefer confidence from second pass when used
-            conf = conf2
-            source = "llm"
-            intent = intent2
-            slots = slots2
-        
-        # Extract answer summary and row count
-        if isinstance(out, dict) and "answer" in out:
-            answer_summary = call_logger.format_answer_summary(out, max_len=500)
-            answer_value = out["answer"]
-            if isinstance(answer_value, list):
-                rows_returned = len(answer_value)
-            elif isinstance(answer_value, int):
-                rows_returned = answer_value
-            else:
-                rows_returned = 1 if answer_value is not None else 0
-        else:
-            answer_summary = str(out)[:500]
-            rows_returned = 0
-        
+        # prefer confidence from second pass when used
+        conf = conf2
+        source = "llm"
     out["router"] = {"source": source, "confidence": conf}
-        
-        # Calculate latency
-        latency_ms = int((time.time() - start_time) * 1000)
-        
-        # Log the successful call
-        try:
-            call_logger.log_agent_call(
-                user_question=req.question,
-                router_intent=intent,
-                slots=slots,
-                target_agent="docking",
-                handler_name=handler_name,
-                sql_or_query=sql_or_query,
-                rows_returned=rows_returned,
-                latency_ms=latency_ms,
-                error=None,
-                answer_summary=answer_summary
-            )
-        except Exception as log_error:
-            # Don't fail the request if logging fails
-            print(f"Warning: Failed to log agent call: {log_error}")
-        
     return out
-        
-    except Exception as e:
-        # Log the failed call
-        latency_ms = int((time.time() - start_time) * 1000)
-        error = repr(e)
-        
-        try:
-            call_logger.log_agent_call(
-                user_question=req.question,
-                router_intent=intent if 'intent' in locals() else None,
-                slots=slots if 'slots' in locals() else None,
-                target_agent="docking",
-                handler_name=handler_name,
-                sql_or_query=sql_or_query,
-                rows_returned=0,
-                latency_ms=latency_ms,
-                error=error,
-                answer_summary="ERROR: " + str(e)[:200]
-            )
-        except Exception as log_error:
-            print(f"Warning: Failed to log error: {log_error}")
-        
-        # Re-raise the original exception
-        raise
 
 
-@app.post("/analysis/eval")
-def trigger_evaluation(
-    limit: int = Query(50, description="Maximum number of calls to evaluate"),
-    errors_only: bool = Query(False, description="Only evaluate calls with errors"),
-    since_hours: Optional[int] = Query(None, description="Only evaluate calls from last N hours"),
-    judge_model: str = Query("gpt-4o-mini", description="LLM model to use for judging")
-):
-    """
-    Trigger LLM-as-a-judge evaluation on recent agent calls.
-    
-    This endpoint:
-    1. Fetches recent unevaluated calls from agent_call_logs
-    2. Sends them to a judge LLM with a rubric-based prompt
-    3. Parses the JSON evaluation scores
-    4. Writes evaluations to agent_call_evals
-    
-    Inspired by "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena" (Zheng et al., NeurIPS 2023).
-    
-    Parameters:
-    - limit: Max number of calls to evaluate (default: 50)
-    - errors_only: Only evaluate calls with errors (default: False)
-    - since_hours: Only evaluate calls from last N hours (default: all)
-    - judge_model: LLM model to use for judging (default: gpt-4o-mini)
-    
-    Returns:
-    - Summary of evaluation results with statistics
-    """
-    try:
-        # Import eval_agent module
-        try:
-            from . import eval_agent
-        except ImportError:
-            import eval_agent
-        
-        # Run evaluation
-        result = eval_agent.run_evaluation(
-            limit=limit,
-            errors_only=errors_only,
-            since_hours=since_hours,
-            judge_model=judge_model
-        )
-        
-        return result
-        
-    except ImportError as e:
-        return {
-            "status": "error",
-            "message": f"eval_agent module not available: {str(e)}",
-            "hint": "Install OpenAI package: pip install openai"
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e)
-        }
-
-
-@app.get("/analysis/eval/stats")
-def evaluation_stats(
-    since_hours: Optional[int] = Query(None, description="Stats from last N hours")
-):
-    """
-    Get evaluation statistics.
-    
-    Returns aggregate statistics on agent call evaluations:
-    - Total calls logged
-    - Total calls evaluated
-    - Average usefulness score
-    - Severity breakdown
-    - Error rate
-    
-    Parameters:
-    - since_hours: Only include calls from last N hours (default: all)
-    """
-    try:
-        conn = _conn()
-        cur = conn.cursor()
-        
-        # Build time filter
-        time_filter = ""
-        params = []
-        if since_hours:
-            time_filter = "WHERE datetime(l.created_utc) > datetime('now', ?)"
-            params.append(f"-{since_hours} hours")
-        
-        # Get stats
-        stats = {}
-        
-        # Total calls
-        query = f"SELECT COUNT(*) FROM agent_call_logs l {time_filter}"
-        stats["total_calls"] = cur.execute(query, params).fetchone()[0]
-        
-        # Calls with errors
-        error_filter = f"AND l.error IS NOT NULL" if time_filter else "WHERE l.error IS NOT NULL"
-        query = f"SELECT COUNT(*) FROM agent_call_logs l {time_filter} {error_filter if time_filter else 'WHERE l.error IS NOT NULL'}"
-        stats["calls_with_errors"] = cur.execute(query, params).fetchone()[0]
-        
-        # Total evaluations
-        eval_time_filter = ""
-        if since_hours:
-            eval_time_filter = "WHERE datetime(e.created_utc) > datetime('now', ?)"
-        query = f"SELECT COUNT(*) FROM agent_call_evals e {eval_time_filter}"
-        stats["total_evaluations"] = cur.execute(query, params if since_hours else []).fetchone()[0]
-        
-        # Average usefulness score
-        query = f"""
-            SELECT AVG(e.usefulness_score)
-            FROM agent_call_evals e
-            {eval_time_filter}
-        """
-        avg_score = cur.execute(query, params if since_hours else []).fetchone()[0]
-        stats["avg_usefulness_score"] = round(float(avg_score), 2) if avg_score else None
-        
-        # Severity breakdown
-        query = f"""
-            SELECT e.severity, COUNT(*) as count
-            FROM agent_call_evals e
-            {eval_time_filter}
-            GROUP BY e.severity
-        """
-        severity_rows = cur.execute(query, params if since_hours else []).fetchall()
-        stats["severity_breakdown"] = {row[0]: row[1] for row in severity_rows}
-        
-        # Intent correctness rate
-        query = f"""
-            SELECT AVG(CAST(e.intent_correct AS FLOAT)) * 100 as pct
-            FROM agent_call_evals e
-            {eval_time_filter}
-        """
-        intent_pct = cur.execute(query, params if since_hours else []).fetchone()[0]
-        stats["intent_correct_pct"] = round(float(intent_pct), 1) if intent_pct else None
-        
-        # Answer on-topic rate
-        query = f"""
-            SELECT AVG(CAST(e.answer_on_topic AS FLOAT)) * 100 as pct
-            FROM agent_call_evals e
-            {eval_time_filter}
-        """
-        on_topic_pct = cur.execute(query, params if since_hours else []).fetchone()[0]
-        stats["answer_on_topic_pct"] = round(float(on_topic_pct), 1) if on_topic_pct else None
-        
-        # Hallucination risk distribution
-        query = f"""
-            SELECT e.hallucination_risk, COUNT(*) as count
-            FROM agent_call_evals e
-            {eval_time_filter}
-            GROUP BY e.hallucination_risk
-        """
-        halluc_rows = cur.execute(query, params if since_hours else []).fetchall()
-        stats["hallucination_distribution"] = {row[0]: row[1] for row in halluc_rows}
-        
-        conn.close()
-        
-        return {
-            "status": "success",
-            "stats": stats,
-            "time_range": f"last {since_hours} hours" if since_hours else "all time"
-        }
-        
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e)
-        }
-
-
-@app.get("/analysis/eval/recent")
-def recent_evaluations(
-    limit: int = Query(10, description="Number of recent evaluations to return"),
-    severity: Optional[str] = Query(None, description="Filter by severity (ok|minor_issue|major_issue)")
-):
-    """
-    Get recent evaluations with full details.
-    
-    Returns a list of recent evaluations including:
-    - Original question and answer
-    - Evaluation scores
-    - Judge feedback
-    
-    Parameters:
-    - limit: Number of evaluations to return (default: 10)
-    - severity: Filter by severity level (optional)
-    """
-    try:
-        conn = _conn()
-        cur = conn.cursor()
-        
-        # Build query
-        severity_filter = ""
-        params = []
-        if severity:
-            severity_filter = "WHERE e.severity = ?"
-            params.append(severity)
-        
-        query = f"""
-            SELECT 
-                l.id as call_id,
-                l.user_question,
-                l.router_intent,
-                l.handler_name,
-                l.latency_ms,
-                l.error,
-                l.answer_summary,
-                e.intent_correct,
-                e.answer_on_topic,
-                e.usefulness_score,
-                e.hallucination_risk,
-                e.severity,
-                e.feedback_summary,
-                e.created_utc as eval_time,
-                e.judge_model
-            FROM agent_call_evals e
-            JOIN agent_call_logs l ON l.id = e.call_id
-            {severity_filter}
-            ORDER BY e.created_utc DESC
-            LIMIT ?
-        """
-        params.append(limit)
-        
-        rows = cur.execute(query, params).fetchall()
-        conn.close()
-        
-        # Format results
-        evaluations = []
-        for row in rows:
-            evaluations.append({
-                "call_id": row[0],
-                "question": row[1],
-                "intent": row[2],
-                "handler": row[3],
-                "latency_ms": row[4],
-                "had_error": row[5] is not None,
-                "answer_summary": row[6],
-                "evaluation": {
-                    "intent_correct": bool(row[7]),
-                    "answer_on_topic": bool(row[8]),
-                    "usefulness_score": row[9],
-                    "hallucination_risk": row[10],
-                    "severity": row[11],
-                    "feedback": row[12],
-                    "evaluated_at": row[13],
-                    "judge_model": row[14]
-                }
-            })
-        
-        return {
-            "status": "success",
-            "count": len(evaluations),
-            "evaluations": evaluations
-        }
-        
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e)
-        }
-
+# Import and add evaluation endpoints
+try:
+    from . import api_eval_endpoints
+    api_eval_endpoints.add_eval_endpoints(app, _conn)
+except Exception as e:
+    print(f"Warning: Could not load evaluation endpoints: {e}")
