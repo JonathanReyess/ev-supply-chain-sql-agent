@@ -1,0 +1,134 @@
+{
+    "single_agent_questions": {
+      "docking_agent_only": [
+        "What doors are currently active at Fremont CA?",
+        "Show me all scheduled inbound trucks for the next 2 hours",
+        "Which crews are assigned to Shanghai right now?",
+        "Is door FCX-D05 available at 3pm today?",
+        "What's the current yard queue at all locations?",
+        "How many forklifts are available at Austin TX right now?",
+        "What's the status of truck T-FCX-617?",
+        "Show me all planned outbound loads for tonight",
+        "Which carriers have loads scheduled at Fremont?"
+      ],
+      "sql_agent_only": [
+        "What's the average lead time across all suppliers?",
+        "Which supplier has the highest reliability score?",
+        "How many vehicles were actually produced vs planned last month?",
+        "What's the total cost of all pending purchase orders?",
+        "Show me component usage trends for Battery types over the last quarter",
+        "Which warehouse location has the lowest inventory levels?",
+        "What's the defect rate by component type?",
+        "Calculate average order-to-delivery time by supplier country",
+        "Which production line has the highest capacity utilization?",
+        "What's the total value of inventory at each warehouse?",
+        "How many quality check failures occurred in Q4 2024?",
+        "Which components are most frequently below target stock levels?"
+      ]
+    },
+    "multi_agent_questions": {
+      "real_time_plus_historical": [
+        "Is Fremont CA busier than usual today compared to historical averages?",
+        "Show current door assignments and compare to typical daily volume",
+        "Are any high-priority suppliers currently delayed, and what's their typical on-time rate?",
+        "Which doors have been reassigned most frequently this week, and why?",
+        "Current inventory levels vs target stock - which components need urgent restocking?"
+      ],
+      "cross_domain_analysis": [
+        "What components are arriving on truck T-FCX-617, and do we have enough inventory to meet production needs?",
+        "Show me all inbound shipments today for suppliers with reliability scores below 70",
+        "Which production lines are scheduled today, and do we have all required components in stock?",
+        "Compare current dock resource utilization to peak historical periods",
+        "Are there any trucks arriving today with components that failed quality checks in the past?"
+      ],
+      "operational_decision_support": [
+        "Should we prioritize door assignments for battery components based on current inventory levels and production schedule?",
+        "Which suppliers are delivering today, and what's their historical defect rate?",
+        "Compare today's inbound schedule to our production needs for the next 48 hours",
+        "Identify gaps: which scheduled production runs might face component shortages based on current shipments?",
+        "What's the cost impact if we expedite orders from suppliers currently in the yard queue?"
+      ]
+    },
+    "complex_multi_step_questions": {
+      "supply_chain_risk_assessment": [
+        "Which suppliers have trucks arriving today, what's their reliability score, and have any of their past shipments failed quality checks?",
+        "Show me all battery components below target stock, identify incoming shipments, and estimate when we'll be back to target levels",
+        "Are there any production schedules at risk due to low inventory AND delayed shipments?"
+      ],
+      "cost_optimization": [
+        "What's the total cost of components arriving today vs our typical daily inbound value?",
+        "Calculate potential savings if we consolidated shipments from suppliers in the same city",
+        "Which warehouses have excess inventory of components that other locations need?"
+      ],
+      "performance_benchmarking": [
+        "How does Fremont CA's dock efficiency today compare to Shanghai and Austin TX historically?",
+        "Which production line has the best planned vs actual vehicle ratio, and are they currently running?",
+        "Compare lead times for Taiwan suppliers vs other countries, and show their current shipment status"
+      ],
+      "predictive_planning": [
+        "Based on planned production for next week and current inventory, which components should we order urgently?",
+        "What's the typical unload time for trucks from supplier S0022, and do we have enough dock capacity scheduled?",
+        "If production line PL001 runs at full capacity next week, will current inventory plus scheduled deliveries be sufficient?"
+      ]
+    },
+    "edge_cases": {
+      "data_reconciliation": [
+        "Show discrepancies between planned and actual vehicle production this month",
+        "Which purchase orders are marked as shipped but have no corresponding dock assignments?",
+        "Find components with inventory below target but no pending purchase orders"
+      ],
+      "time_sensitive_queries": [
+        "What needs to happen in the next hour across all locations?",
+        "Which outbound loads are approaching cutoff time with no door assignment?",
+        "Show all trucks that arrived earlier than ETA by more than 30 minutes"
+      ],
+      "quality_and_compliance": [
+        "Which suppliers have quality check pass rates below 90%?",
+        "Show all components from supplier S0008 that failed quality checks in the last 6 months",
+        "Are any high-defect-rate components currently in the dock schedule?"
+      ]
+    },
+    "recommended_test_suite": {
+      "phase_1_basic_routing": [
+        "What's the status of truck T-FCX-617?",
+        "Which supplier has the highest reliability score?",
+        "Show me all scheduled inbound trucks for the next 2 hours",
+        "What's the total cost of all pending purchase orders?",
+        "How many forklifts are available at Austin TX right now?"
+      ],
+      "phase_2_multi_step_same_agent": [
+        "Calculate average order-to-delivery time by supplier country",
+        "Which production line has the highest capacity utilization?",
+        "What's the defect rate by component type?",
+        "Which components are most frequently below target stock levels?"
+      ],
+      "phase_3_two_agent_coordination": [
+        "Is Fremont CA busier than usual today compared to historical averages?",
+        "Which doors have been reassigned most frequently this week, and why?",
+        "Current inventory levels vs target stock - which components need urgent restocking?",
+        "Show me all inbound shipments today for suppliers with reliability scores below 70"
+      ],
+      "phase_4_complex_synthesis": [
+        "Which suppliers have trucks arriving today, what's their reliability score, and have any of their past shipments failed quality checks?",
+        "Should we prioritize door assignments for battery components based on current inventory levels and production schedule?",
+        "Show me all battery components below target stock, identify incoming shipments, and estimate when we'll be back to target levels",
+        "Compare today's inbound schedule to our production needs for the next 48 hours"
+      ],
+      "phase_5_showcase_questions": [
+        "Should we expedite battery component orders based on current production schedule, inventory levels, and incoming shipments?",
+        "Which warehouse has the biggest gap between inventory and production needs, and are there shipments in transit to address it?",
+        "If production line PL001 runs at full capacity next week, will current inventory plus scheduled deliveries be sufficient?"
+      ]
+    },
+    "metadata": {
+      "total_questions": 73,
+      "categories": {
+        "single_agent": 21,
+        "multi_agent": 15,
+        "complex_multi_step": 12,
+        "edge_cases": 9,
+        "test_suite": 16
+      },
+      "suggested_usage": "Start with phase_1_basic_routing to validate single-agent routing, then progressively test more complex multi-agent scenarios through phase_5_showcase_questions"
+    }
+  }

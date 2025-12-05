@@ -1,0 +1,47 @@
+{
+  "runId": "eval-1764892525529",
+  "timestamp": "2025-12-04T23:55:25.529Z",
+  "model": "gemini-2.5-flash",
+  "totalQuestions": 1,
+  "successCount": 1,
+  "failureCount": 0,
+  "averageDurationMs": 195743,
+  "traces": [
+    {
+      "questionId": "single_test_run-0",
+      "question": "How many inbound shipments are there at Fremont CA?",
+      "category": "single test run",
+      "expectedAgents": [
+        "sql_orchestrator_agent"
+      ],
+      "finalAnswer": "There are 40 inbound shipments at Fremont CA.",
+      "totalDurationMs": 195743,
+      "totalIterations": 1,
+      "toolCalls": [
+        {
+          "toolName": "sql_orchestrator_agent",
+          "startTime": 1764892526655,
+          "question": "How many inbound shipments are there at Fremont CA?",
+          "result": "",
+          "endTime": 1764892719889,
+          "durationMs": 193234
+        }
+      ],
+      "agentsUsed": [
+        "sql_orchestrator_agent"
+      ],
+      "routingSequence": [
+        "sql_orchestrator_agent"
+      ],
+      "startTimestamp": "2025-12-04T23:55:25.530Z",
+      "endTimestamp": "2025-12-04T23:58:41.273Z",
+      "sqlQueries": [
+        "SELECT COUNT(truck_id) FROM inbound_trucks WHERE LOWER(location) = LOWER('Fremont CA')..."
+      ],
+      "sqlResults": [],
+      "internalSqlAgentSequence": [],
+      "internalSqlAgentDetails": [],
+      "success": true
+    }
+  ]
+}
