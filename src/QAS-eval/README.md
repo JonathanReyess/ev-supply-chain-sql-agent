@@ -2,6 +2,8 @@
 
 Automated evaluation of SQL-of-Thought and Docking agents using QAS (Query Affinity Score) methodology.
 
+Article: https://www.nature.com/articles/s41598-025-04890-9
+
 ## Quick Start
 
 ### Run Evaluation
