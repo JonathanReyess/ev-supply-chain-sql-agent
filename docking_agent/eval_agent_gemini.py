@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
 """
-LLM-as-a-Judge Evaluation Module for Agent Calls
+LLM-as-a-Judge Evaluation Module using Gemini
 
-Inspired by "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena" (Zheng et al., NeurIPS 2023).
-This module evaluates individual agent calls (question → routing → handler → SQL/API → answer)
-using a judge LLM with a rubric-based prompt.
-
-Key Features:
-- Fetches recent logs from agent_call_logs table
-- Sends logs to judge LLM with structured rubric
-- Parses strict JSON output with evaluation scores
-- Writes per-call evaluations into agent_call_evals table
-- Supports filtering by error status and time range
+This is a Gemini-compatible version of eval_agent.py.
+Uses Google's Gemini API instead of OpenAI for judging.
 """
 
 import os
@@ -21,15 +13,15 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import time
 
-# Try to import OpenAI, fallback gracefully
+# Try to import Google GenerativeAI
 try:
-    from openai import OpenAI
-    HAS_OPENAI = True
+    import google.generativeai as genai
+    HAS_GEMINI = True
 except ImportError:
-    HAS_OPENAI = False
-    OpenAI = None
+    HAS_GEMINI = False
+    genai = None
 
-# Judge LLM Rubric-Based Prompt (inspired by MT-Bench)
+# Judge LLM Rubric-Based Prompt (same as OpenAI version)
 JUDGE_SYSTEM_PROMPT = """You are an expert evaluator for EV supply chain agent systems. Your role is to judge the quality of agent responses to user questions.
 
 You will receive:
@@ -104,35 +96,41 @@ JUDGE_USER_TEMPLATE = """Evaluate this agent call:
 **Answer Summary:**
 {answer_summary}
 
-Provide your evaluation as JSON only, no other text."""
+Return only valid JSON with the evaluation scores. No other text."""
 
 
 class AgentCallEvaluator:
-    """Evaluates agent calls using an LLM judge."""
+    """Evaluates agent calls using Gemini as the judge LLM."""
     
     def __init__(
         self,
         db_path: Optional[str] = None,
-        judge_model: str = "gpt-4o-mini",
+        judge_model: str = "gemini-2.0-flash-exp",
         api_key: Optional[str] = None
     ):
-        """
-        Initialize the evaluator.
-        
-        Args:
-            db_path: Path to SQLite database (defaults to env var or ./data/ev_supply_chain.db)
-            judge_model: LLM model to use for judging (default: gpt-4o-mini)
-            api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
-        """
+        """Initialize the evaluator with Gemini."""
         self.db_path = db_path or os.getenv("DB_PATH", "./data/ev_supply_chain.db")
         self.judge_model = judge_model
         
-        if not HAS_OPENAI:
+        if not HAS_GEMINI:
             raise ImportError(
-                "OpenAI package not installed. Install with: pip install openai"
+                "Google GenerativeAI package not installed. Install with: pip install google-generativeai"
             )
         
-        self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+        # Configure Gemini
+        api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("LLM_API_KEY")
+        if not api_key:
+            raise ValueError("No Gemini API key found. Set GOOGLE_API_KEY environment variable.")
+        
+        genai.configure(api_key=api_key)
+        
+        # Set up safety settings to avoid blocking
+        self.safety_settings = {
+            "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
+            "HARM_CATEGORY_HATE_SPEECH": "BLOCK_NONE",
+            "HARM_CATEGORY_HARASSMENT": "BLOCK_NONE",
+            "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_NONE",
+        }
     
     def _conn(self) -> sqlite3.Connection:
         """Get database connection."""
@@ -144,21 +142,10 @@ class AgentCallEvaluator:
         errors_only: bool = False,
         since_hours: Optional[int] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Fetch recent agent calls that haven't been evaluated yet.
-        
-        Args:
-            limit: Maximum number of calls to fetch
-            errors_only: If True, only fetch calls with errors
-            since_hours: Only fetch calls from the last N hours
-            
-        Returns:
-            List of agent call records as dictionaries
-        """
+        """Fetch recent agent calls that haven't been evaluated yet."""
         conn = self._conn()
         cur = conn.cursor()
         
-        # Build query
         query = """
             SELECT 
                 l.id, l.created_utc, l.user_question, l.router_intent,
@@ -184,7 +171,6 @@ class AgentCallEvaluator:
         rows = cur.execute(query, params).fetchall()
         conn.close()
         
-        # Convert to dicts
         columns = [
             "id", "created_utc", "user_question", "router_intent",
             "slots_json", "target_agent", "handler_name", "sql_or_query",
@@ -194,17 +180,9 @@ class AgentCallEvaluator:
         return [dict(zip(columns, row)) for row in rows]
     
     def judge_call(self, call: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Evaluate a single agent call using the judge LLM.
-        
-        Args:
-            call: Agent call record from agent_call_logs
-            
-        Returns:
-            Evaluation dictionary with scores and feedback
-        """
+        """Evaluate a single agent call using Gemini."""
         # Format the prompt
-        user_prompt = JUDGE_USER_TEMPLATE.format(
+        prompt = JUDGE_SYSTEM_PROMPT + "\n\n" + JUDGE_USER_TEMPLATE.format(
             user_question=call["user_question"],
             router_intent=call["router_intent"] or "None",
             slots_json=call["slots_json"] or "{}",
@@ -218,19 +196,22 @@ class AgentCallEvaluator:
         )
         
         try:
-            # Call judge LLM
-            response = self.client.chat.completions.create(
-                model=self.judge_model,
-                messages=[
-                    {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.0,  # Deterministic evaluation
-                response_format={"type": "json_object"}  # Force JSON output
+            # Call Gemini
+            model = genai.GenerativeModel(
+                model_name=self.judge_model,
+                safety_settings=self.safety_settings
+            )
+            
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.0,
+                    response_mime_type="application/json"
+                )
             )
             
             # Parse JSON response
-            raw_json = response.choices[0].message.content
+            raw_json = response.text
             evaluation = json.loads(raw_json)
             
             # Validate required fields
@@ -261,16 +242,7 @@ class AgentCallEvaluator:
             }
     
     def save_evaluation(self, call_id: int, evaluation: Dict[str, Any]) -> int:
-        """
-        Save an evaluation to the database.
-        
-        Args:
-            call_id: ID from agent_call_logs
-            evaluation: Evaluation dictionary from judge_call()
-            
-        Returns:
-            ID of the inserted evaluation record
-        """
+        """Save an evaluation to the database."""
         conn = self._conn()
         cur = conn.cursor()
         
@@ -305,21 +277,9 @@ class AgentCallEvaluator:
         since_hours: Optional[int] = None,
         delay_between_calls: float = 0.5
     ) -> Dict[str, Any]:
-        """
-        Evaluate recent unevaluated agent calls.
-        
-        Args:
-            limit: Maximum number of calls to evaluate
-            errors_only: Only evaluate calls with errors
-            since_hours: Only evaluate calls from last N hours
-            delay_between_calls: Sleep duration between API calls (rate limiting)
-            
-        Returns:
-            Summary dictionary with evaluation statistics
-        """
+        """Evaluate recent unevaluated agent calls."""
         start_time = time.time()
         
-        # Fetch calls to evaluate
         calls = self.fetch_recent_calls(
             limit=limit,
             errors_only=errors_only,
@@ -336,7 +296,9 @@ class AgentCallEvaluator:
         
         # Evaluate each call
         results = []
-        for call in calls:
+        for i, call in enumerate(calls, 1):
+            print(f"Evaluating call {i}/{len(calls)}: {call['user_question'][:50]}...")
+            
             try:
                 evaluation = self.judge_call(call)
                 eval_id = self.save_evaluation(call["id"], evaluation)
@@ -345,14 +307,18 @@ class AgentCallEvaluator:
                     "call_id": call["id"],
                     "eval_id": eval_id,
                     "severity": evaluation["severity"],
-                    "usefulness": evaluation["usefulness_score"]
+                    "usefulness": evaluation["usefulness_score"],
+                    "feedback": evaluation["feedback_summary"][:100]
                 })
+                
+                print(f"  ✅ Severity: {evaluation['severity']}, Usefulness: {evaluation['usefulness_score']}/5.0")
                 
                 # Rate limiting
                 if delay_between_calls > 0:
                     time.sleep(delay_between_calls)
                     
             except Exception as e:
+                print(f"  ❌ Error: {e}")
                 results.append({
                     "call_id": call["id"],
                     "error": str(e)
@@ -379,7 +345,8 @@ class AgentCallEvaluator:
             "severity_breakdown": severity_counts,
             "avg_usefulness_score": round(avg_usefulness, 2),
             "elapsed_seconds": round(time.time() - start_time, 2),
-            "judge_model": self.judge_model
+            "judge_model": self.judge_model,
+            "results": results[:10]  # Include first 10 results
         }
     
     def _truncate(self, text: Optional[str], max_len: int) -> Optional[str]:
@@ -396,21 +363,9 @@ def run_evaluation(
     errors_only: bool = False,
     since_hours: Optional[int] = None,
     db_path: Optional[str] = None,
-    judge_model: str = "gpt-4o-mini"
+    judge_model: str = "gemini-2.0-flash-exp"
 ) -> Dict[str, Any]:
-    """
-    Convenience function to run evaluation pipeline.
-    
-    Args:
-        limit: Maximum number of calls to evaluate
-        errors_only: Only evaluate calls with errors
-        since_hours: Only evaluate calls from last N hours
-        db_path: Path to database (defaults to env var)
-        judge_model: LLM model to use for judging
-        
-    Returns:
-        Evaluation summary dictionary
-    """
+    """Convenience function to run evaluation pipeline with Gemini."""
     evaluator = AgentCallEvaluator(db_path=db_path, judge_model=judge_model)
     return evaluator.evaluate_recent_calls(
         limit=limit,
@@ -420,15 +375,15 @@ def run_evaluation(
 
 
 if __name__ == "__main__":
-    # CLI interface for testing
     import sys
     
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 10
     errors_only = "--errors-only" in sys.argv
     
-    print(f"Running evaluation on up to {limit} recent calls...")
+    print(f"Running evaluation on up to {limit} recent calls (using Gemini)...")
     if errors_only:
         print("(errors only)")
+    print()
     
     try:
         result = run_evaluation(limit=limit, errors_only=errors_only)
@@ -438,6 +393,8 @@ if __name__ == "__main__":
         print(json.dumps(result, indent=2))
     except Exception as e:
         print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 

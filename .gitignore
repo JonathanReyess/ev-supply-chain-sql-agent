@@ -61,3 +61,7 @@ ENV/
 
 # VS Code directory (user-specific settings)
 .vscode/
+# All .env files in any subdirectory
+**/.env
+**/.env.*
+!**/.env.example

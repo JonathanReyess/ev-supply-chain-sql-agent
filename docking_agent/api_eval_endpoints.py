@@ -15,16 +15,16 @@ def add_eval_endpoints(app, _conn):
         limit: int = Query(50, description="Maximum number of calls to evaluate"),
         errors_only: bool = Query(False, description="Only evaluate calls with errors"),
         since_hours: Optional[int] = Query(None, description="Only evaluate calls from last N hours"),
-        judge_model: str = Query("gpt-4o-mini", description="LLM model to use for judging")
+        judge_model: str = Query("gemini-2.0-flash-exp", description="LLM model to use for judging")
     ):
-        """Trigger LLM-as-a-judge evaluation on recent agent calls."""
+        """Trigger LLM-as-a-judge evaluation on recent agent calls using Gemini."""
         try:
             try:
-                from . import eval_agent
+                from . import eval_agent_gemini
             except ImportError:
-                import eval_agent
+                import eval_agent_gemini
             
-            result = eval_agent.run_evaluation(
+            result = eval_agent_gemini.run_evaluation(
                 limit=limit,
                 errors_only=errors_only,
                 since_hours=since_hours,
@@ -36,8 +36,8 @@ def add_eval_endpoints(app, _conn):
         except ImportError as e:
             return {
                 "status": "error",
-                "message": f"eval_agent module not available: {str(e)}",
-                "hint": "Install OpenAI package: pip install openai"
+                "message": f"eval_agent_gemini module not available: {str(e)}",
+                "hint": "Install Google Generative AI package: pip install google-generativeai"
             }
         except Exception as e:
             return {

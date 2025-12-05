@@ -84,16 +84,20 @@ class AdvancedNLPEngine:
             "past": (-30, 0),
         }
     
-    def parse_query(self, query: str) -> QueryIntent:
+    def parse_query(self, query: str, context: Dict[str, Any] = None) -> QueryIntent:
         """
         Parse any natural language query about docking operations.
         Returns structured intent with high confidence.
+        
+        Args:
+            query: Natural language question
+            context: Optional context from orchestrator for LLM routing
         """
         query = query.strip()
         
         # Try LLM first if enabled
         if self.use_llm:
-            llm_intent = self._llm_parse(query)
+            llm_intent = self._llm_parse(query, context)
             if llm_intent and llm_intent.confidence > 0.7:
                 return llm_intent
         
@@ -102,7 +106,7 @@ class AdvancedNLPEngine:
         
         # Fallback to LLM if pattern matching has low confidence
         if intent.confidence < 0.6 and self.use_llm:
-            llm_intent = self._llm_parse(query)
+            llm_intent = self._llm_parse(query, context)
             if llm_intent and llm_intent.confidence > intent.confidence:
                 return llm_intent
         
@@ -258,30 +262,34 @@ class AdvancedNLPEngine:
         
         return "unknown", 0.5
     
-    def _llm_parse(self, query: str) -> Optional[QueryIntent]:
-        """Use LLM for advanced query understanding"""
+    def _llm_parse(self, query: str, context: Dict[str, Any] = None) -> Optional[QueryIntent]:
+        """Use LLM for advanced query understanding with optional context"""
         try:
             if self.provider == "gemini":
-                return self._gemini_parse(query)
+                return self._gemini_parse(query, context)
             elif self.provider == "openai":
-                return self._openai_parse(query)
+                return self._openai_parse(query, context)
         except Exception as e:
             print(f"LLM parse error: {e}")
             return None
     
-    def _gemini_parse(self, query: str) -> Optional[QueryIntent]:
-        """Parse using Gemini"""
+    def _gemini_parse(self, query: str, context: Dict[str, Any] = None) -> Optional[QueryIntent]:
+        """Parse using Gemini with optional orchestrator context"""
         import google.generativeai as genai
         
-        api_key = os.getenv("GOOGLE_API_KEY")
+        api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("LLM_API_KEY")
         if not api_key:
             return None
         
         genai.configure(api_key=api_key)
         
+        context_str = ""
+        if context:
+            context_str = "\n\nContext from orchestrator:\n" + "\n".join(f"- {k}: {v}" for k, v in context.items())
+        
         prompt = f"""Analyze this docking operations query and extract structured information.
 
-Query: "{query}"
+Query: "{query}"{context_str}
 
 Return JSON with:
 {{
@@ -355,7 +363,7 @@ Be specific with sub_intent based on the query context."""
             reasoning=data.get("reasoning", "LLM-based parsing")
         )
     
-    def _openai_parse(self, query: str) -> Optional[QueryIntent]:
+    def _openai_parse(self, query: str, context: Dict[str, Any] = None) -> Optional[QueryIntent]:
         """Parse using OpenAI"""
         from openai import OpenAI
         

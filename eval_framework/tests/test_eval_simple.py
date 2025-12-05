@@ -8,7 +8,7 @@ import sys
 
 # Set environment
 os.environ["DB_PATH"] = "./data/ev_supply_chain.db"
-os.environ["GOOGLE_API_KEY"] = "AIzaSyBV6mZSEtOmawYJWbuYmTzfiQ0i-KGq4-E"
+os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY", "your-api-key-here")
 
 print("="*80)
 print("EVALUATION PIPELINE - COMPONENT TEST")

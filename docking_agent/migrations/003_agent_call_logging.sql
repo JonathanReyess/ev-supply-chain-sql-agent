@@ -46,3 +46,4 @@ CREATE INDEX IF NOT EXISTS idx_agent_call_evals_call_id ON agent_call_evals(call
 CREATE INDEX IF NOT EXISTS idx_agent_call_evals_created ON agent_call_evals(created_utc DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_call_evals_severity ON agent_call_evals(severity);
 
+

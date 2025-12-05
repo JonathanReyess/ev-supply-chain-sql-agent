@@ -132,3 +132,4 @@ if __name__ == "__main__":
         print(f"❌ Error running migrations: {e}")
         sys.exit(1)
 
+

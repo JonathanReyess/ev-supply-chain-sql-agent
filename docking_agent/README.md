@@ -1,331 +1,364 @@
-# Advanced Docking Agent v2.0
+# Docking Agent - Natural Language Supply Chain Interface
 
-An intelligent, production-ready docking operations agent with advanced NLP, reasoning, and multi-agent orchestration capabilities.
+The core Python application providing natural language query capabilities for EV supply chain operations.
 
-## 🚀 Key Features
+---
 
-### 1. **Universal Natural Language Understanding**
-- Understands ANY type of question about docking operations
-- No more limited pattern matching - ask questions naturally
-- Supports queries, analysis, status checks, comparisons, and more
+## 🚀 Quick Start
 
-### 2. **Intelligent Reasoning & Analysis**
-- Performs actual data analysis to answer "why" and "how" questions
-- Does NOT just return stored causality data
-- Provides step-by-step reasoning, evidence, insights, and recommendations
+### From Root Directory
+```bash
+cd ev-supply-chain-sql-agent
+./setup_gemini.sh  # Automated setup
 
-### 3. **Multi-Agent Orchestration Ready**
-- Standardized tool protocol for integration with larger frameworks
-- Can be called by other agents or orchestrators
-- Provides 10+ specialized tools for different operations
+# Or manual:
+export $(cat .env | xargs)
+uvicorn docking_agent.api:app --reload --port 8088
+```
 
-### 4. **Production Features**
-- RESTful API with FastAPI
-- Batch optimization with OR-Tools
-- Resource management and validation
-- Comprehensive error handling
-- Configurable NLP and LLM routing
-
-## 📦 Installation
-
+### From This Directory
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
-# Set up database
-export DB_PATH=./data/ev_supply_chain.db
-mkdir -p data && touch $DB_PATH
-
-# Apply migrations
-python3 - <<'PY'
-import sqlite3, os
-db = os.getenv("DB_PATH")
-conn = sqlite3.connect(db)
-for p in ["docking_agent/migrations/001_create_docking_tables.sql",
-          "docking_agent/migrations/002_provenance.sql"]:
-    conn.executescript(open(p).read())
-conn.commit(); conn.close()
-print("✓ Migrations applied")
-PY
-
-# Seed data (optional)
-python3 -m docking_agent.simulate
-
-# Configure (optional - for LLM features)
-export USE_LLM_ROUTER=true
-export LLM_PROVIDER=gemini
+# Set environment
 export GOOGLE_API_KEY=your_key_here
-export GEMINI_MODEL=gemini-2.0-flash
-```
-
-## 🏃 Quick Start
-
-### Start the API Server
-
-```bash
-uvicorn docking_agent.api:app --reload --port 8088
-```
-
-Access Swagger docs at: http://localhost:8088/docs
-
-### Basic Usage
-
-```bash
-# Ask any question
-curl -X POST http://localhost:8088/qa \
-  -H 'Content-Type: application/json' \
-  -d '{"question":"What is the door schedule at Fremont?"}'
-
-# Analyze why something happened
-curl -X POST http://localhost:8088/qa \
-  -H 'Content-Type: application/json' \
-  -d '{"question":"Why was door 4 reassigned?"}'
-
-# Check availability
-curl -X POST http://localhost:8088/qa \
-  -H 'Content-Type: application/json' \
-  -d '{"question":"Which doors are available at Austin?"}'
-
-# Get operational status
-curl -X POST http://localhost:8088/qa \
-  -H 'Content-Type: application/json' \
-  -d '{"question":"What is the operational status at Fremont?"}'
-```
-
-## 🎯 Supported Question Types
-
-### Query Questions
-- "What is the door schedule at [location]?"
-- "Show me available doors"
-- "List all pending trucks"
-- "What's the utilization at [location]?"
-- "When will truck [ID] arrive?"
-
-### Analysis Questions (WHY/HOW)
-- "Why was door [X] reassigned?"
-- "How can we improve efficiency?"
-- "What's causing delays at [location]?"
-- "Explain the bottlenecks"
-- "Why are we seeing high utilization?"
-
-### Status Questions
-- "What's the status of door [X]?"
-- "Check truck [ID] status"
-- "Is load [ID] assigned?"
-- "What's the current operational status?"
-
-### Comparison Questions
-- "Compare utilization between [location1] and [location2]"
-- "Which location is more efficient?"
-- "Compare this week to last week"
-
-### Count/Aggregate Questions
-- "How many doors are active?"
-- "What's the average delay time?"
-- "Count pending trucks"
-
-## 🔧 Configuration
-
-Environment variables:
-
-```bash
-# Database
-export DB_PATH=./data/ev_supply_chain.db
-
-# Advanced NLP (default: enabled)
-export USE_ADVANCED_NLP=true
-
-# LLM-based routing (optional, for complex queries)
+export DB_PATH=../data/ev_supply_chain.db
+export LLM_PROVIDER=gemini
 export USE_LLM_ROUTER=true
-export LLM_PROVIDER=gemini  # or openai
-export GOOGLE_API_KEY=your_key
-export GEMINI_MODEL=gemini-2.0-flash
 
-# LLM strategy
-export LLM_FIRST=false  # Try patterns first, LLM as fallback
+# Run migrations
+python run_migrations.py
+
+# Start server
+uvicorn api:app --reload --port 8088
 ```
 
-## 🤖 Orchestrator Integration
+**API Running:** http://localhost:8088  
+**Docs:** http://localhost:8088/docs
 
-### Get Available Tools
+---
 
+## 📁 Key Files
+
+| File | Purpose |
+|------|---------|
+| **api.py** | FastAPI endpoints (`/qa`, `/analysis/*`) |
+| **llm_router.py** | Intent classification with Gemini |
+| **orchestrator.py** | Multi-agent coordination |
+| **query_handlers.py** | Pre-written SQL query handlers |
+| **call_logger.py** | Automatic logging of all queries |
+| **eval_agent_gemini.py** | LLM-as-a-judge evaluator |
+| **nlp_engine.py** | Advanced NLP processing |
+| **requirements.txt** | Python dependencies |
+
+---
+
+## 🎯 Main Endpoints
+
+### Query Endpoint
 ```bash
-curl http://localhost:8088/orchestrator/tools
+POST /qa
+{
+  "question": "What is the door schedule at Fremont?"
+}
 ```
 
-### Execute a Tool
-
+### Evaluation Endpoints
 ```bash
-curl -X POST http://localhost:8088/orchestrator/execute \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "tool_name": "answer_docking_question",
-    "parameters": {"question": "Why was door 4 reassigned?"}
-  }'
+POST /analysis/eval?limit=50           # Trigger evaluation
+GET  /analysis/eval/stats              # Get statistics  
+GET  /analysis/eval/recent?limit=10    # Recent evaluations
 ```
 
-### Python Integration
+---
 
-```python
-from docking_agent.orchestrator import DockingOrchestrator, ToolCall
+## 🏗️ How It Works
 
-orchestrator = DockingOrchestrator()
-
-# Get available tools
-tools = orchestrator.get_tools()
-
-# Execute a tool
-result = orchestrator.call_tool(ToolCall(
-    tool_name="analyze_utilization",
-    parameters={"location": "Fremont CA", "hours": 24}
-))
-
-print(result.result)
+```
+1. User Question
+   ↓
+2. LLM Router (llm_router.py)
+   - Classifies intent using Gemini
+   - Extracts entities (location, door, etc.)
+   ↓
+3. Query Handler (query_handlers.py)
+   - Pre-written optimized SQL
+   - Executes against database
+   ↓
+4. Response Formatter
+   - Structured JSON response
+   ↓
+5. Call Logger (call_logger.py)
+   - Logs everything for evaluation
+   ↓
+6. LLM Judge (eval_agent_gemini.py)
+   - Evaluates quality (async)
 ```
 
-## 📊 Available Tools
+---
 
-1. **answer_docking_question** - Answer any NL question
-2. **allocate_inbound_truck** - Allocate dock for inbound truck
-3. **allocate_outbound_load** - Allocate dock for outbound load
-4. **optimize_dock_schedule** - Batch schedule optimization
-5. **analyze_reassignment** - Detailed reassignment analysis
-6. **analyze_delays** - Delay pattern analysis
-7. **analyze_utilization** - Utilization efficiency analysis
-8. **get_door_schedule** - Get door schedule
-9. **check_door_availability** - Check door availability
-10. **get_operational_status** - Get overall status
+## 🗄️ Database Schema
+
+The database (`../data/ev_supply_chain.db`) includes:
+
+**Docking Tables:**
+- `dock_doors` - Physical locations
+- `dock_assignments` - Scheduled assignments
+- `dock_events` - Event provenance
+
+**Supply Chain Tables:**
+- `suppliers`, `components`, `inventory`
+- `purchase_orders`, `inbound_trucks`, `outbound_loads`
+
+**Evaluation Tables:**
+- `agent_call_logs` - Every query logged
+- `agent_call_evals` - LLM judge scores
+
+Apply migrations: `python run_migrations.py`
+
+---
 
 ## 🧪 Testing
 
 ```bash
-# Run comprehensive test suite
-python3 docking_agent/test_advanced.py
+# Run test suite
+pytest test_advanced.py -v
 
-# Test specific features
-python3 -c "
-from docking_agent.qa import answer_question
-result = answer_question('Why was door 4 reassigned?')
-print(result)
-"
+# Test single query
+curl -X POST http://localhost:8088/qa \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Show me Fremont doors"}'
+
+# Run evaluation
+python -m docking_agent.eval_agent_gemini 10
+
+# Check stats
+curl http://localhost:8088/analysis/eval/stats
 ```
-
-## 📚 API Endpoints
-
-### Core Operations
-- `POST /qa` - Answer any question
-- `POST /propose/inbound` - Propose inbound slot
-- `POST /propose/outbound` - Propose outbound slot
-- `POST /decide/commit` - Commit proposals
-- `POST /optimize/commit` - Batch optimization
-
-### Orchestrator Endpoints
-- `GET /orchestrator/tools` - Get available tools
-- `POST /orchestrator/execute` - Execute a tool
-- `POST /orchestrator/batch_execute` - Execute multiple tools
-- `GET /capabilities` - Get agent capabilities
-
-### Debug Endpoints
-- `GET /health` - Health check
-- `GET /debug/router` - Check router config
-- `POST /debug/route` - Test intent routing
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────┐
-│         Docking Agent v2.0              │
-├─────────────────────────────────────────┤
-│                                         │
-│  ┌──────────┐  ┌──────────┐  ┌──────┐ │
-│  │   NLP    │  │Reasoning │  │Orch. │ │
-│  │  Engine  │  │  Engine  │  │      │ │
-│  └────┬─────┘  └────┬─────┘  └──┬───┘ │
-│       │             │            │     │
-│       └─────────────┴────────────┘     │
-│                     │                  │
-│           ┌─────────▼─────────┐        │
-│           │  Query Handlers   │        │
-│           └─────────┬─────────┘        │
-│                     │                  │
-│      ┌──────────────┼──────────────┐   │
-│      │              │              │   │
-│  ┌───▼───┐   ┌──────▼──────┐  ┌───▼──┐│
-│  │Alloc. │   │Optimization │  │Analy.││
-│  └───────┘   └─────────────┘  └──────┘│
-│                                         │
-└─────────────────┬───────────────────────┘
-                  │
-          ┌───────▼────────┐
-          │   Database     │
-          │   (SQLite)     │
-          └────────────────┘
-```
-
-## 🎓 Examples
-
-See [ADVANCED_FEATURES.md](./ADVANCED_FEATURES.md) for detailed examples and usage patterns.
-
-See [TESTING.md](./TESTING.md) for API testing examples.
-
-## 📝 Key Differences from v1.0
-
-| Feature | v1.0 | v2.0 |
-|---------|------|------|
-| Question Types | Limited patterns | Universal understanding |
-| Why/How Questions | Returns stored data | Performs analysis |
-| NLP | Regex + basic LLM | Advanced semantic parsing |
-| Orchestration | None | Full tool protocol |
-| Analysis | Basic | Deep reasoning with evidence |
-| Integration | Standalone | Multi-agent ready |
-
-## 🔍 Troubleshooting
-
-### Questions not being understood
-1. Check `USE_ADVANCED_NLP=true` is set
-2. Try enabling LLM routing: `USE_LLM_ROUTER=true`
-3. Check logs for parsing errors
-
-### Analysis returning empty results
-1. Ensure database has sufficient data
-2. Check that migrations are applied
-3. Verify location names match database
-
-### Orchestrator tools not working
-1. Verify API is running: `curl http://localhost:8088/health`
-2. Check tool list: `curl http://localhost:8088/orchestrator/tools`
-3. Review tool call parameters
-
-## 🚦 Performance
-
-- **Query Response**: 50-200ms (pattern), 300-800ms (LLM)
-- **Allocation**: 10-50ms (heuristic), 500-2000ms (optimization)
-- **Analysis**: 100-500ms
-- **Concurrent Requests**: 100+
-
-## 🤝 Contributing
-
-This is a production-ready agent designed for integration into larger systems. When extending:
-
-1. Add new intents to `nlp_engine.py`
-2. Implement handlers in `query_handlers.py`
-3. Add reasoning logic to `reasoning_engine.py`
-4. Register tools in `orchestrator.py`
-5. Add tests to `test_advanced.py`
-
-## 📄 License
-
-MIT License - See main repository for details.
-
-## 🆘 Support
-
-For issues:
-1. Check health: `curl http://localhost:8088/health`
-2. Review logs
-3. Run test suite: `python3 docking_agent/test_advanced.py`
-4. Check configuration with: `curl http://localhost:8088/debug/router`
 
 ---
 
-**Built for production. Ready for orchestration. Intelligent by design.**
+## 🔧 Configuration
+
+Required environment variables:
+
+```bash
+# LLM Configuration
+LLM_PROVIDER=gemini              # Use Gemini
+USE_LLM_ROUTER=true              # Enable LLM routing
+GOOGLE_API_KEY=your_key_here     # Get from makersuite.google.com
+
+# Models
+GEMINI_MODEL=gemini-2.0-flash-exp
+LLM_MODEL=gemini-2.0-flash-exp
+
+# Database
+DB_PATH=../data/ev_supply_chain.db
+
+# Optional
+USE_ADVANCED_NLP=true
+DEBUG_LLM_ROUTER=false
+```
+
+---
+
+## 📝 Adding New Query Types
+
+### 1. Add Intent to Router
+Edit `llm_router.py`:
+```python
+ALLOWED_INTENTS = [
+    "door_schedule",
+    "count_schedule",
+    "your_new_intent"  # Add here
+]
+```
+
+### 2. Update Prompt
+Add to `USER_TMPL` in `llm_router.py`:
+```
+- your_new_intent: Description here (slots: param1, param2)
+```
+
+### 3. Create Handler
+Add to `query_handlers.py`:
+```python
+def handle_your_new_intent(param1, param2):
+    conn = get_db_connection()
+    rows = conn.execute(
+        "SELECT ... FROM ... WHERE ...",
+        (param1, param2)
+    ).fetchall()
+    return {
+        "answer": "...",
+        "results": rows
+    }
+```
+
+### 4. Route in API
+Add to `api.py` in the `qa()` endpoint:
+```python
+elif intent == "your_new_intent":
+    result = handle_your_new_intent(
+        slots.get("param1"),
+        slots.get("param2")
+    )
+```
+
+---
+
+## 🔍 Debugging
+
+### Enable Debug Mode
+```bash
+export DEBUG_LLM_ROUTER=true
+# Restart server
+```
+
+### Check Logs
+```bash
+# View recent queries
+sqlite3 ../data/ev_supply_chain.db \
+  "SELECT user_question, router_intent, created_utc 
+   FROM agent_call_logs 
+   ORDER BY created_utc DESC LIMIT 10"
+
+# Check for errors
+sqlite3 ../data/ev_supply_chain.db \
+  "SELECT * FROM agent_call_logs WHERE error IS NOT NULL"
+```
+
+### Common Issues
+
+**"LLM Router disabled"**
+```bash
+export USE_LLM_ROUTER=true
+export LLM_PROVIDER=gemini
+```
+
+**"No Gemini API key"**
+```bash
+export GOOGLE_API_KEY=your_key_here
+```
+
+**"Database not found"**
+```bash
+python run_migrations.py
+cd .. && python generate_data.py
+```
+
+---
+
+## 📊 Evaluation System
+
+### Automatic Logging
+Every query is automatically logged to `agent_call_logs` with:
+- User question
+- Intent classification
+- SQL executed
+- Rows returned
+- Latency
+- Errors (if any)
+
+### LLM-as-a-Judge
+Run evaluations using Gemini:
+
+```bash
+# Evaluate recent calls
+python eval_agent_gemini.py 50
+
+# Or via API
+curl -X POST "http://localhost:8088/analysis/eval?limit=50"
+```
+
+### Evaluation Metrics
+- **Intent Correctness** (0/1)
+- **Answer On-Topic** (0/1)
+- **Usefulness** (1-5)
+- **Hallucination Risk** (low/medium/high)
+- **Severity** (ok/minor_issue/major_issue)
+
+See `eval_agent_gemini.py` for details.
+
+---
+
+## 🚀 Production Deployment
+
+### Run with Gunicorn
+```bash
+pip install gunicorn
+gunicorn -w 4 -k uvicorn.workers.UvicornWorker docking_agent.api:app --bind 0.0.0.0:8088
+```
+
+### Scheduled Evaluation
+Add to crontab for hourly evaluation:
+```bash
+0 * * * * cd /path/to/repo && python -m docking_agent.eval_agent_gemini 100
+```
+
+### Monitor Performance
+```bash
+# Check recent quality
+curl http://localhost:8088/analysis/eval/stats
+
+# Find issues
+sqlite3 ../data/ev_supply_chain.db \
+  "SELECT * FROM agent_call_evals WHERE severity='major_issue'"
+```
+
+---
+
+## 📚 Related Documentation
+
+- **Main README:** `../README.md` - Complete system overview
+- **Quick Start:** `../QUICKSTART.md` - 5-minute setup
+- **Eval Framework:** `../eval_framework/README.md` - Evaluation details
+
+---
+
+## 🎓 Architecture Notes
+
+### Why Intent Routing (Not Text-to-SQL)?
+
+We use **intent classification + pre-written SQL** instead of generating SQL:
+
+**Benefits:**
+- ✅ Predictable, tested queries
+- ✅ Better performance (optimized SQL)
+- ✅ No SQL injection risk
+- ✅ Easier to debug
+- ✅ Lower latency
+
+**How It Works:**
+1. LLM classifies intent (e.g., "door_schedule")
+2. LLM extracts parameters (e.g., location="Fremont")
+3. We call pre-written handler with parameters
+4. Handler executes optimized SQL
+5. Return formatted results
+
+This approach is more reliable for production systems.
+
+---
+
+## 💡 Tips
+
+1. **Use Debug Mode:** Set `DEBUG_LLM_ROUTER=true` to see routing decisions
+2. **Monitor Evaluations:** Check stats regularly for quality issues
+3. **Optimize Queries:** Pre-written SQL can be tuned for performance
+4. **Add Context:** Pass context to orchestrator for multi-turn conversations
+5. **Test Thoroughly:** Use `test_advanced.py` before deploying changes
+
+---
+
+## 📞 Need Help?
+
+- **Main docs:** `../README.md`
+- **Setup issues:** `../QUICKSTART.md`
+- **API docs:** http://localhost:8088/docs
+- **Gemini docs:** https://ai.google.dev/docs
+
+---
+
+**Built for Tesla Supply Chain Operations** 🚗⚡
 
