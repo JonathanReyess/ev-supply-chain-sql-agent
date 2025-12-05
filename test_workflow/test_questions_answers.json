@@ -1,5 +1,5 @@
 [
-    {
+  {
     "id": 1,
     "question": "What is the total quantity of Battery components currently in stock across all warehouses?",
     "agent": "sql",
@@ -7,9 +7,13 @@
     "difficulty": "easy",
     "expected_sql": "SELECT SUM(i.quantityinstock) AS total_battery_stock\nFROM inventory i\nJOIN components c ON i.componentid = c.componentid\nWHERE c.type = 'Battery';",
     "expected_answer_type": "number",
-    "tables_involved": ["inventory", "components"]
-    },
-    {
+    "tables_involved": [
+      "inventory",
+      "components"
+    ],
+    "expected_results": 7554075
+  },
+  {
     "id": 2,
     "question": "How many units of component C00001 are in stock at the Fremont CA warehouse?",
     "agent": "sql",
@@ -17,9 +21,12 @@
     "difficulty": "easy",
     "expected_sql": "SELECT COALESCE(SUM(quantityinstock), 0) AS stock_qty\nFROM inventory\nWHERE componentid = 'C00001'\n  AND warehouselocation = 'Fremont CA';",
     "expected_answer_type": "number",
-    "tables_involved": ["inventory"]
-    },
-    {
+    "tables_involved": [
+      "inventory"
+    ],
+    "expected_results": 10341
+  },
+  {
     "id": 3,
     "question": "How many distinct suppliers are in the system?",
     "agent": "sql",
@@ -27,9 +34,12 @@
     "difficulty": "easy",
     "expected_sql": "SELECT COUNT(DISTINCT supplierid) AS supplier_count\nFROM suppliers;",
     "expected_answer_type": "number",
-    "tables_involved": ["suppliers"]
-    },
-    {
+    "tables_involved": [
+      "suppliers"
+    ],
+    "expected_results": 60
+  },
+  {
     "id": 4,
     "question": "What is the average reliability score of suppliers based in Taiwan?",
     "agent": "sql",
@@ -37,9 +47,12 @@
     "difficulty": "easy",
     "expected_sql": "SELECT AVG(reliabilityscore) AS avg_reliability_taiwan\nFROM suppliers\nWHERE locationcountry = 'Taiwan';",
     "expected_answer_type": "number",
-    "tables_involved": ["suppliers"]
-    },
-    {
+    "tables_involved": [
+      "suppliers"
+    ],
+    "expected_results": 83.92857142857143
+  },
+  {
     "id": 5,
     "question": "How many vehicles were planned to be produced at Fremont CA on 2024-01-01?",
     "agent": "sql",
@@ -47,9 +60,13 @@
     "difficulty": "easy",
     "expected_sql": "SELECT SUM(ps.plannedvehicles) AS total_planned\nFROM production_schedule ps\nJOIN production_lines pl ON ps.lineid = pl.lineid\nWHERE pl.location = 'Fremont CA'\n  AND ps.date = '2024-01-01';",
     "expected_answer_type": "number",
-    "tables_involved": ["production_schedule", "production_lines"]
-    },
-    {
+    "tables_involved": [
+      "production_schedule",
+      "production_lines"
+    ],
+    "expected_results": 148
+  },
+  {
     "id": 6,
     "question": "How many inbound trucks are scheduled to arrive at Fremont CA today?",
     "agent": "sql",
@@ -57,9 +74,12 @@
     "difficulty": "easy",
     "expected_sql": "SELECT COUNT(*) AS scheduled_trucks_today\nFROM inbound_trucks\nWHERE location = 'Fremont CA'\n  AND status = 'scheduled'\n  AND DATE(eta_utc) = DATE('now');",
     "expected_answer_type": "number",
-    "tables_involved": ["inbound_trucks"]
-    },
-    {
+    "tables_involved": [
+      "inbound_trucks"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 7,
     "question": "List the top 5 most expensive components by unit cost.",
     "agent": "sql",
@@ -67,9 +87,43 @@
     "difficulty": "medium",
     "expected_sql": "SELECT componentid, name, type, unitcost\nFROM components\nORDER BY unitcost DESC\nLIMIT 5;",
     "expected_answer_type": "table",
-    "tables_involved": ["components"]
-    },
-    {
+    "tables_involved": [
+      "components"
+    ],
+    "expected_results": [
+      {
+        "componentid": "C00281",
+        "name": "Wiring Harness - area",
+        "type": "Electronics",
+        "unitcost": 8496.37
+      },
+      {
+        "componentid": "C00285",
+        "name": "Wiring Harness - autho",
+        "type": "Electronics",
+        "unitcost": 8474.05
+      },
+      {
+        "componentid": "C00252",
+        "name": "Sensor Array - indee",
+        "type": "Electronics",
+        "unitcost": 8448.34
+      },
+      {
+        "componentid": "C00150",
+        "name": "Gearbox - loss",
+        "type": "Motor",
+        "unitcost": 8397.15
+      },
+      {
+        "componentid": "C00073",
+        "name": "Pack Housing - fly",
+        "type": "Battery",
+        "unitcost": 8362.84
+      }
+    ]
+  },
+  {
     "id": 8,
     "question": "For each vehicle model, what is the average actual-to-planned production ratio in 2024?",
     "agent": "sql",
@@ -77,9 +131,13 @@
     "difficulty": "medium",
     "expected_sql": "SELECT pl.vehiclemodel,\n       AVG(CAST(ps.actualvehicles AS REAL) / NULLIF(ps.plannedvehicles, 0)) AS avg_actual_to_planned_ratio\nFROM production_schedule ps\nJOIN production_lines pl ON ps.lineid = pl.lineid\nWHERE strftime('%Y', ps.date) = '2024'\nGROUP BY pl.vehiclemodel;",
     "expected_answer_type": "table",
-    "tables_involved": ["production_schedule", "production_lines"]
-    },
-    {
+    "tables_involved": [
+      "production_schedule",
+      "production_lines"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 9,
     "question": "Which components have used more quantity in production than has been ordered across all purchase orders?",
     "agent": "sql",
@@ -87,9 +145,242 @@
     "difficulty": "medium",
     "expected_sql": "SELECT cu.componentid,\n       SUM(cu.totalquantityused) AS total_used,\n       SUM(pli.quantityordered) AS total_ordered,\n       (SUM(cu.totalquantityused) - SUM(pli.quantityordered)) AS usage_minus_orders\nFROM component_usage cu\nJOIN po_line_items pli ON cu.componentid = pli.componentid\nGROUP BY cu.componentid\nHAVING SUM(cu.totalquantityused) > SUM(pli.quantityordered);",
     "expected_answer_type": "table",
-    "tables_involved": ["component_usage", "po_line_items"]
-    },
-    {
+    "tables_involved": [
+      "component_usage",
+      "po_line_items"
+    ],
+    "expected_results": [
+      {
+        "componentid": "C00210",
+        "total_used": 211029,
+        "total_ordered": 199368,
+        "usage_minus_orders": 11661
+      },
+      {
+        "componentid": "C00023",
+        "total_used": 232496,
+        "total_ordered": 217013,
+        "usage_minus_orders": 15483
+      },
+      {
+        "componentid": "C00061",
+        "total_used": 258495,
+        "total_ordered": 222040,
+        "usage_minus_orders": 36455
+      },
+      {
+        "componentid": "C00184",
+        "total_used": 262384,
+        "total_ordered": 254628,
+        "usage_minus_orders": 7756
+      },
+      {
+        "componentid": "C00120",
+        "total_used": 141111,
+        "total_ordered": 125905,
+        "usage_minus_orders": 15206
+      },
+      {
+        "componentid": "C00216",
+        "total_used": 187362,
+        "total_ordered": 171192,
+        "usage_minus_orders": 16170
+      },
+      {
+        "componentid": "C00096",
+        "total_used": 221663,
+        "total_ordered": 220171,
+        "usage_minus_orders": 1492
+      },
+      {
+        "componentid": "C00295",
+        "total_used": 256595,
+        "total_ordered": 229824,
+        "usage_minus_orders": 26771
+      },
+      {
+        "componentid": "C00192",
+        "total_used": 273989,
+        "total_ordered": 253506,
+        "usage_minus_orders": 20483
+      },
+      {
+        "componentid": "C00252",
+        "total_used": 382305,
+        "total_ordered": 377568,
+        "usage_minus_orders": 4737
+      },
+      {
+        "componentid": "C00224",
+        "total_used": 249441,
+        "total_ordered": 208394,
+        "usage_minus_orders": 41047
+      },
+      {
+        "componentid": "C00034",
+        "total_used": 160860,
+        "total_ordered": 151704,
+        "usage_minus_orders": 9156
+      },
+      {
+        "componentid": "C00250",
+        "total_used": 232400,
+        "total_ordered": 212100,
+        "usage_minus_orders": 20300
+      },
+      {
+        "componentid": "C00147",
+        "total_used": 141984,
+        "total_ordered": 135808,
+        "usage_minus_orders": 6176
+      },
+      {
+        "componentid": "C00117",
+        "total_used": 285082,
+        "total_ordered": 257828,
+        "usage_minus_orders": 27254
+      },
+      {
+        "componentid": "C00113",
+        "total_used": 354178,
+        "total_ordered": 350364,
+        "usage_minus_orders": 3814
+      },
+      {
+        "componentid": "C00046",
+        "total_used": 249120,
+        "total_ordered": 247910,
+        "usage_minus_orders": 1210
+      },
+      {
+        "componentid": "C00004",
+        "total_used": 357105,
+        "total_ordered": 336182,
+        "usage_minus_orders": 20923
+      },
+      {
+        "componentid": "C00078",
+        "total_used": 320768,
+        "total_ordered": 311492,
+        "usage_minus_orders": 9276
+      },
+      {
+        "componentid": "C00103",
+        "total_used": 372108,
+        "total_ordered": 361861,
+        "usage_minus_orders": 10247
+      },
+      {
+        "componentid": "C00102",
+        "total_used": 295600,
+        "total_ordered": 263109,
+        "usage_minus_orders": 32491
+      },
+      {
+        "componentid": "C00127",
+        "total_used": 241969,
+        "total_ordered": 239094,
+        "usage_minus_orders": 2875
+      },
+      {
+        "componentid": "C00269",
+        "total_used": 393816,
+        "total_ordered": 352384,
+        "usage_minus_orders": 41432
+      },
+      {
+        "componentid": "C00259",
+        "total_used": 133020,
+        "total_ordered": 124887,
+        "usage_minus_orders": 8133
+      },
+      {
+        "componentid": "C00012",
+        "total_used": 290510,
+        "total_ordered": 280984,
+        "usage_minus_orders": 9526
+      },
+      {
+        "componentid": "C00036",
+        "total_used": 187128,
+        "total_ordered": 173439,
+        "usage_minus_orders": 13689
+      },
+      {
+        "componentid": "C00279",
+        "total_used": 109130,
+        "total_ordered": 89496,
+        "usage_minus_orders": 19634
+      },
+      {
+        "componentid": "C00064",
+        "total_used": 370461,
+        "total_ordered": 366573,
+        "usage_minus_orders": 3888
+      },
+      {
+        "componentid": "C00077",
+        "total_used": 295216,
+        "total_ordered": 279006,
+        "usage_minus_orders": 16210
+      },
+      {
+        "componentid": "C00247",
+        "total_used": 210860,
+        "total_ordered": 192024,
+        "usage_minus_orders": 18836
+      },
+      {
+        "componentid": "C00044",
+        "total_used": 394002,
+        "total_ordered": 350424,
+        "usage_minus_orders": 43578
+      },
+      {
+        "componentid": "C00196",
+        "total_used": 398808,
+        "total_ordered": 353028,
+        "usage_minus_orders": 45780
+      },
+      {
+        "componentid": "C00154",
+        "total_used": 333140,
+        "total_ordered": 312039,
+        "usage_minus_orders": 21101
+      },
+      {
+        "componentid": "C00070",
+        "total_used": 147504,
+        "total_ordered": 140344,
+        "usage_minus_orders": 7160
+      },
+      {
+        "componentid": "C00141",
+        "total_used": 339040,
+        "total_ordered": 315951,
+        "usage_minus_orders": 23089
+      },
+      {
+        "componentid": "C00260",
+        "total_used": 182860,
+        "total_ordered": 141015,
+        "usage_minus_orders": 41845
+      },
+      {
+        "componentid": "C00060",
+        "total_used": 176748,
+        "total_ordered": 161568,
+        "usage_minus_orders": 15180
+      },
+      {
+        "componentid": "C00299",
+        "total_used": 108045,
+        "total_ordered": 102600,
+        "usage_minus_orders": 5445
+      }
+    ]
+  },
+  {
     "id": 10,
     "question": "Which suppliers have lead times longer than the overall average lead time?",
     "agent": "sql",
@@ -97,9 +388,158 @@
     "difficulty": "medium",
     "expected_sql": "SELECT supplierid, name, leadtimedays\nFROM suppliers\nWHERE leadtimedays > (\n  SELECT AVG(leadtimedays) FROM suppliers\n);",
     "expected_answer_type": "table",
-    "tables_involved": ["suppliers"]
-    },
-    {
+    "tables_involved": [
+      "suppliers"
+    ],
+    "expected_results": [
+      {
+        "supplierid": "S0003",
+        "name": "Johnson, Gonzalez and Santos",
+        "leadtimedays": 54
+      },
+      {
+        "supplierid": "S0004",
+        "name": "Pacheco-Smith",
+        "leadtimedays": 54
+      },
+      {
+        "supplierid": "S0005",
+        "name": "Moore-Bernard",
+        "leadtimedays": 44
+      },
+      {
+        "supplierid": "S0009",
+        "name": "James Group",
+        "leadtimedays": 52
+      },
+      {
+        "supplierid": "S0010",
+        "name": "Santiago Ltd",
+        "leadtimedays": 41
+      },
+      {
+        "supplierid": "S0011",
+        "name": "Sanchez, Ford and Nelson",
+        "leadtimedays": 35
+      },
+      {
+        "supplierid": "S0012",
+        "name": "Perez Inc",
+        "leadtimedays": 58
+      },
+      {
+        "supplierid": "S0013",
+        "name": "Gentry PLC",
+        "leadtimedays": 58
+      },
+      {
+        "supplierid": "S0014",
+        "name": "Wilkerson-Day",
+        "leadtimedays": 34
+      },
+      {
+        "supplierid": "S0016",
+        "name": "Snyder, Campos and Callahan",
+        "leadtimedays": 55
+      },
+      {
+        "supplierid": "S0020",
+        "name": "Gill, Romero and Rodriguez",
+        "leadtimedays": 36
+      },
+      {
+        "supplierid": "S0024",
+        "name": "Keller PLC",
+        "leadtimedays": 52
+      },
+      {
+        "supplierid": "S0025",
+        "name": "Henderson, Lewis and Ryan",
+        "leadtimedays": 49
+      },
+      {
+        "supplierid": "S0029",
+        "name": "Caldwell-Lewis",
+        "leadtimedays": 60
+      },
+      {
+        "supplierid": "S0031",
+        "name": "Jordan, Henderson and Owens",
+        "leadtimedays": 49
+      },
+      {
+        "supplierid": "S0032",
+        "name": "Powell LLC",
+        "leadtimedays": 50
+      },
+      {
+        "supplierid": "S0033",
+        "name": "Taylor-White",
+        "leadtimedays": 45
+      },
+      {
+        "supplierid": "S0034",
+        "name": "Morton-Chase",
+        "leadtimedays": 41
+      },
+      {
+        "supplierid": "S0037",
+        "name": "Baker-Bowers",
+        "leadtimedays": 42
+      },
+      {
+        "supplierid": "S0039",
+        "name": "Edwards, Williams and Woods",
+        "leadtimedays": 59
+      },
+      {
+        "supplierid": "S0042",
+        "name": "Miller, Sandoval and Cunningham",
+        "leadtimedays": 43
+      },
+      {
+        "supplierid": "S0047",
+        "name": "Garcia, Humphrey and Baker",
+        "leadtimedays": 41
+      },
+      {
+        "supplierid": "S0048",
+        "name": "Jacobs-Robbins",
+        "leadtimedays": 44
+      },
+      {
+        "supplierid": "S0049",
+        "name": "Wagner-King",
+        "leadtimedays": 44
+      },
+      {
+        "supplierid": "S0051",
+        "name": "Thornton, Hoffman and Rodriguez",
+        "leadtimedays": 38
+      },
+      {
+        "supplierid": "S0053",
+        "name": "Nolan and Sons",
+        "leadtimedays": 47
+      },
+      {
+        "supplierid": "S0054",
+        "name": "Henson, Russell and Oliver",
+        "leadtimedays": 50
+      },
+      {
+        "supplierid": "S0056",
+        "name": "Pham-Shields",
+        "leadtimedays": 45
+      },
+      {
+        "supplierid": "S0060",
+        "name": "Frazier-Anthony",
+        "leadtimedays": 41
+      }
+    ]
+  },
+  {
     "id": 11,
     "question": "For each supplier, what is the total purchase order spend and how many quality checks have failed?",
     "agent": "sql",
@@ -107,9 +547,375 @@
     "difficulty": "medium",
     "expected_sql": "SELECT s.supplierid,\n       s.name,\n       SUM(po.totalcost) AS total_po_spend,\n       SUM(CASE WHEN qc.ispass = 0 THEN 1 ELSE 0 END) AS failed_checks\nFROM suppliers s\nLEFT JOIN purchase_orders po ON po.supplierid = s.supplierid\nLEFT JOIN quality_checks qc ON qc.po_id = po.po_id\nGROUP BY s.supplierid, s.name;",
     "expected_answer_type": "table",
-    "tables_involved": ["suppliers", "purchase_orders", "quality_checks"]
-    },
-    {
+    "tables_involved": [
+      "suppliers",
+      "purchase_orders",
+      "quality_checks"
+    ],
+    "expected_results": [
+      {
+        "supplierid": "S0045",
+        "name": "Anderson-Bailey",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0040",
+        "name": "York Inc",
+        "total_po_spend": 0,
+        "failed_checks": 2
+      },
+      {
+        "supplierid": "S0058",
+        "name": "Bailey-Hoover",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0030",
+        "name": "Johnston, Sanchez and Kennedy",
+        "total_po_spend": 0,
+        "failed_checks": 3
+      },
+      {
+        "supplierid": "S0012",
+        "name": "Perez Inc",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0057",
+        "name": "Rodriguez, Brennan and Garrison",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0034",
+        "name": "Morton-Chase",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0049",
+        "name": "Wagner-King",
+        "total_po_spend": 0,
+        "failed_checks": 2
+      },
+      {
+        "supplierid": "S0046",
+        "name": "Bass-Warner",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0019",
+        "name": "Carter and Sons",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0009",
+        "name": "James Group",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0037",
+        "name": "Baker-Bowers",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0005",
+        "name": "Moore-Bernard",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0042",
+        "name": "Miller, Sandoval and Cunningham",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0028",
+        "name": "Brown, Jones and Johnson",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0029",
+        "name": "Caldwell-Lewis",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0026",
+        "name": "Santos, Kim and Holmes",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0052",
+        "name": "Aguilar-Hernandez",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0016",
+        "name": "Snyder, Campos and Callahan",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0011",
+        "name": "Sanchez, Ford and Nelson",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0060",
+        "name": "Frazier-Anthony",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0043",
+        "name": "Moran, Allen and Foster",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0048",
+        "name": "Jacobs-Robbins",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0055",
+        "name": "Keith Inc",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0025",
+        "name": "Henderson, Lewis and Ryan",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0002",
+        "name": "Mcclain, Miller and Henderson",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0004",
+        "name": "Pacheco-Smith",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0015",
+        "name": "Hoffman, Baker and Richards",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0007",
+        "name": "Martinez, Nielsen and Miller",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0018",
+        "name": "Frazier Inc",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0031",
+        "name": "Jordan, Henderson and Owens",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0050",
+        "name": "Smith and Sons",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0056",
+        "name": "Pham-Shields",
+        "total_po_spend": 0,
+        "failed_checks": 3
+      },
+      {
+        "supplierid": "S0021",
+        "name": "Gonzalez, Brooks and Martin",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0041",
+        "name": "David PLC",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0059",
+        "name": "Ross LLC",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0001",
+        "name": "Rodriguez, Figueroa and Sanchez",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0033",
+        "name": "Taylor-White",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0035",
+        "name": "Novak and Sons",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0032",
+        "name": "Powell LLC",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0024",
+        "name": "Keller PLC",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0013",
+        "name": "Gentry PLC",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0039",
+        "name": "Edwards, Williams and Woods",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0020",
+        "name": "Gill, Romero and Rodriguez",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0017",
+        "name": "Henderson, Brown and James",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0023",
+        "name": "Arroyo, Miller and Tucker",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0051",
+        "name": "Thornton, Hoffman and Rodriguez",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0036",
+        "name": "Hancock Inc",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0003",
+        "name": "Johnson, Gonzalez and Santos",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0038",
+        "name": "Higgins, Moore and Phillips",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0047",
+        "name": "Garcia, Humphrey and Baker",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0027",
+        "name": "Chapman and Sons",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0053",
+        "name": "Nolan and Sons",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0054",
+        "name": "Henson, Russell and Oliver",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0006",
+        "name": "Howard LLC",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0008",
+        "name": "Lee, Jones and Stanley",
+        "total_po_spend": 0,
+        "failed_checks": 2
+      },
+      {
+        "supplierid": "S0044",
+        "name": "Ellis PLC",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0010",
+        "name": "Santiago Ltd",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      },
+      {
+        "supplierid": "S0022",
+        "name": "Hickman LLC",
+        "total_po_spend": 0,
+        "failed_checks": 1
+      },
+      {
+        "supplierid": "S0014",
+        "name": "Wilkerson-Day",
+        "total_po_spend": 0,
+        "failed_checks": 0
+      }
+    ]
+  },
+  {
     "id": 12,
     "question": "Show the total inbound shipping cost by month for the year 2025.",
     "agent": "sql",
@@ -117,9 +923,12 @@
     "difficulty": "medium",
     "expected_sql": "SELECT strftime('%Y-%m', shipmentdate) AS year_month,\n       SUM(shippingcost) AS total_shipping_cost\nFROM shipments\nWHERE strftime('%Y', shipmentdate) = '2025'\nGROUP BY year_month\nORDER BY year_month;",
     "expected_answer_type": "table",
-    "tables_involved": ["shipments"]
-    },
-    {
+    "tables_involved": [
+      "shipments"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 13,
     "question": "Which components at the Fremont CA warehouse are at risk of stockout in the next 7 days based on the production schedule?",
     "agent": "sql",
@@ -127,9 +936,16 @@
     "difficulty": "hard",
     "expected_sql": "SELECT i.componentid,\n       c.name,\n       i.quantityinstock AS current_stock,\n       SUM(ps.plannedvehicles * cu.quantitypervehicle) AS required_quantity_next_7d,\n       (i.quantityinstock - SUM(ps.plannedvehicles * cu.quantitypervehicle)) AS projected_surplus\nFROM inventory i\nJOIN components c ON c.componentid = i.componentid\nJOIN component_usage cu ON cu.componentid = i.componentid\nJOIN production_schedule ps ON ps.scheduleid = cu.scheduleid\nJOIN production_lines pl ON pl.lineid = ps.lineid\nWHERE i.warehouselocation = 'Fremont CA'\n  AND DATE(ps.date) BETWEEN DATE('now') AND DATE('now', '+7 days')\nGROUP BY i.componentid, c.name, i.quantityinstock\nHAVING i.quantityinstock < SUM(ps.plannedvehicles * cu.quantitypervehicle);",
     "expected_answer_type": "table",
-    "tables_involved": ["inventory", "components", "component_usage", "production_schedule", "production_lines"]
-    },
-    {
+    "tables_involved": [
+      "inventory",
+      "components",
+      "component_usage",
+      "production_schedule",
+      "production_lines"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 14,
     "question": "For each supplier, what is the on-time shipment ratio based on planned delivery dates versus actual shipment dates?",
     "agent": "sql",
@@ -137,9 +953,435 @@
     "difficulty": "hard",
     "expected_sql": "SELECT s.supplierid,\n       s.name,\n       COUNT(*) AS total_shipments,\n       SUM(CASE WHEN DATE(sh.shipmentdate) <= DATE(po.deliverydateestimate) THEN 1 ELSE 0 END) AS on_time_shipments,\n       CAST(SUM(CASE WHEN DATE(sh.shipmentdate) <= DATE(po.deliverydateestimate) THEN 1 ELSE 0 END) AS REAL) / COUNT(*) AS on_time_ratio\nFROM suppliers s\nJOIN purchase_orders po ON po.supplierid = s.supplierid\nJOIN shipments sh ON sh.po_id = po.po_id\nGROUP BY s.supplierid, s.name;",
     "expected_answer_type": "table",
-    "tables_involved": ["suppliers", "purchase_orders", "shipments"]
-    },
-    {
+    "tables_involved": [
+      "suppliers",
+      "purchase_orders",
+      "shipments"
+    ],
+    "expected_results": [
+      {
+        "supplierid": "S0025",
+        "name": "Henderson, Lewis and Ryan",
+        "total_shipments": 35,
+        "on_time_shipments": 27,
+        "on_time_ratio": 0.7714285850524902
+      },
+      {
+        "supplierid": "S0048",
+        "name": "Jacobs-Robbins",
+        "total_shipments": 26,
+        "on_time_shipments": 18,
+        "on_time_ratio": 0.692307710647583
+      },
+      {
+        "supplierid": "S0018",
+        "name": "Frazier Inc",
+        "total_shipments": 17,
+        "on_time_shipments": 17,
+        "on_time_ratio": 1
+      },
+      {
+        "supplierid": "S0015",
+        "name": "Hoffman, Baker and Richards",
+        "total_shipments": 24,
+        "on_time_shipments": 18,
+        "on_time_ratio": 0.75
+      },
+      {
+        "supplierid": "S0031",
+        "name": "Jordan, Henderson and Owens",
+        "total_shipments": 20,
+        "on_time_shipments": 16,
+        "on_time_ratio": 0.800000011920929
+      },
+      {
+        "supplierid": "S0055",
+        "name": "Keith Inc",
+        "total_shipments": 21,
+        "on_time_shipments": 18,
+        "on_time_ratio": 0.8571428656578064
+      },
+      {
+        "supplierid": "S0007",
+        "name": "Martinez, Nielsen and Miller",
+        "total_shipments": 20,
+        "on_time_shipments": 15,
+        "on_time_ratio": 0.75
+      },
+      {
+        "supplierid": "S0002",
+        "name": "Mcclain, Miller and Henderson",
+        "total_shipments": 17,
+        "on_time_shipments": 12,
+        "on_time_ratio": 0.7058823704719543
+      },
+      {
+        "supplierid": "S0004",
+        "name": "Pacheco-Smith",
+        "total_shipments": 22,
+        "on_time_shipments": 19,
+        "on_time_ratio": 0.8636363744735718
+      },
+      {
+        "supplierid": "S0050",
+        "name": "Smith and Sons",
+        "total_shipments": 28,
+        "on_time_shipments": 24,
+        "on_time_ratio": 0.8571428656578064
+      },
+      {
+        "supplierid": "S0056",
+        "name": "Pham-Shields",
+        "total_shipments": 26,
+        "on_time_shipments": 22,
+        "on_time_ratio": 0.8461538553237915
+      },
+      {
+        "supplierid": "S0035",
+        "name": "Novak and Sons",
+        "total_shipments": 25,
+        "on_time_shipments": 20,
+        "on_time_ratio": 0.800000011920929
+      },
+      {
+        "supplierid": "S0021",
+        "name": "Gonzalez, Brooks and Martin",
+        "total_shipments": 25,
+        "on_time_shipments": 19,
+        "on_time_ratio": 0.7599999904632568
+      },
+      {
+        "supplierid": "S0041",
+        "name": "David PLC",
+        "total_shipments": 24,
+        "on_time_shipments": 17,
+        "on_time_ratio": 0.7083333134651184
+      },
+      {
+        "supplierid": "S0032",
+        "name": "Powell LLC",
+        "total_shipments": 18,
+        "on_time_shipments": 14,
+        "on_time_ratio": 0.7777777910232544
+      },
+      {
+        "supplierid": "S0001",
+        "name": "Rodriguez, Figueroa and Sanchez",
+        "total_shipments": 23,
+        "on_time_shipments": 16,
+        "on_time_ratio": 0.695652186870575
+      },
+      {
+        "supplierid": "S0059",
+        "name": "Ross LLC",
+        "total_shipments": 28,
+        "on_time_shipments": 21,
+        "on_time_ratio": 0.75
+      },
+      {
+        "supplierid": "S0013",
+        "name": "Gentry PLC",
+        "total_shipments": 18,
+        "on_time_shipments": 13,
+        "on_time_ratio": 0.7222222089767456
+      },
+      {
+        "supplierid": "S0033",
+        "name": "Taylor-White",
+        "total_shipments": 34,
+        "on_time_shipments": 28,
+        "on_time_ratio": 0.8235294222831726
+      },
+      {
+        "supplierid": "S0024",
+        "name": "Keller PLC",
+        "total_shipments": 29,
+        "on_time_shipments": 24,
+        "on_time_ratio": 0.8275862336158752
+      },
+      {
+        "supplierid": "S0046",
+        "name": "Bass-Warner",
+        "total_shipments": 27,
+        "on_time_shipments": 22,
+        "on_time_ratio": 0.8148148059844971
+      },
+      {
+        "supplierid": "S0019",
+        "name": "Carter and Sons",
+        "total_shipments": 26,
+        "on_time_shipments": 19,
+        "on_time_ratio": 0.7307692170143127
+      },
+      {
+        "supplierid": "S0005",
+        "name": "Moore-Bernard",
+        "total_shipments": 22,
+        "on_time_shipments": 18,
+        "on_time_ratio": 0.8181818127632141
+      },
+      {
+        "supplierid": "S0037",
+        "name": "Baker-Bowers",
+        "total_shipments": 30,
+        "on_time_shipments": 17,
+        "on_time_ratio": 0.5666666626930237
+      },
+      {
+        "supplierid": "S0042",
+        "name": "Miller, Sandoval and Cunningham",
+        "total_shipments": 34,
+        "on_time_shipments": 26,
+        "on_time_ratio": 0.7647058963775635
+      },
+      {
+        "supplierid": "S0009",
+        "name": "James Group",
+        "total_shipments": 31,
+        "on_time_shipments": 26,
+        "on_time_ratio": 0.8387096524238586
+      },
+      {
+        "supplierid": "S0060",
+        "name": "Frazier-Anthony",
+        "total_shipments": 26,
+        "on_time_shipments": 26,
+        "on_time_ratio": 1
+      },
+      {
+        "supplierid": "S0016",
+        "name": "Snyder, Campos and Callahan",
+        "total_shipments": 29,
+        "on_time_shipments": 20,
+        "on_time_ratio": 0.6896551847457886
+      },
+      {
+        "supplierid": "S0011",
+        "name": "Sanchez, Ford and Nelson",
+        "total_shipments": 39,
+        "on_time_shipments": 31,
+        "on_time_ratio": 0.7948718070983887
+      },
+      {
+        "supplierid": "S0028",
+        "name": "Brown, Jones and Johnson",
+        "total_shipments": 12,
+        "on_time_shipments": 10,
+        "on_time_ratio": 0.8333333134651184
+      },
+      {
+        "supplierid": "S0043",
+        "name": "Moran, Allen and Foster",
+        "total_shipments": 24,
+        "on_time_shipments": 17,
+        "on_time_ratio": 0.7083333134651184
+      },
+      {
+        "supplierid": "S0029",
+        "name": "Caldwell-Lewis",
+        "total_shipments": 35,
+        "on_time_shipments": 27,
+        "on_time_ratio": 0.7714285850524902
+      },
+      {
+        "supplierid": "S0026",
+        "name": "Santos, Kim and Holmes",
+        "total_shipments": 22,
+        "on_time_shipments": 16,
+        "on_time_ratio": 0.7272727489471436
+      },
+      {
+        "supplierid": "S0052",
+        "name": "Aguilar-Hernandez",
+        "total_shipments": 26,
+        "on_time_shipments": 20,
+        "on_time_ratio": 0.7692307829856873
+      },
+      {
+        "supplierid": "S0053",
+        "name": "Nolan and Sons",
+        "total_shipments": 20,
+        "on_time_shipments": 14,
+        "on_time_ratio": 0.699999988079071
+      },
+      {
+        "supplierid": "S0047",
+        "name": "Garcia, Humphrey and Baker",
+        "total_shipments": 16,
+        "on_time_shipments": 11,
+        "on_time_ratio": 0.6875
+      },
+      {
+        "supplierid": "S0003",
+        "name": "Johnson, Gonzalez and Santos",
+        "total_shipments": 24,
+        "on_time_shipments": 17,
+        "on_time_ratio": 0.7083333134651184
+      },
+      {
+        "supplierid": "S0038",
+        "name": "Higgins, Moore and Phillips",
+        "total_shipments": 24,
+        "on_time_shipments": 20,
+        "on_time_ratio": 0.8333333134651184
+      },
+      {
+        "supplierid": "S0027",
+        "name": "Chapman and Sons",
+        "total_shipments": 27,
+        "on_time_shipments": 19,
+        "on_time_ratio": 0.7037037014961243
+      },
+      {
+        "supplierid": "S0039",
+        "name": "Edwards, Williams and Woods",
+        "total_shipments": 23,
+        "on_time_shipments": 14,
+        "on_time_ratio": 0.6086956262588501
+      },
+      {
+        "supplierid": "S0051",
+        "name": "Thornton, Hoffman and Rodriguez",
+        "total_shipments": 26,
+        "on_time_shipments": 22,
+        "on_time_ratio": 0.8461538553237915
+      },
+      {
+        "supplierid": "S0017",
+        "name": "Henderson, Brown and James",
+        "total_shipments": 23,
+        "on_time_shipments": 18,
+        "on_time_ratio": 0.782608687877655
+      },
+      {
+        "supplierid": "S0023",
+        "name": "Arroyo, Miller and Tucker",
+        "total_shipments": 18,
+        "on_time_shipments": 9,
+        "on_time_ratio": 0.5
+      },
+      {
+        "supplierid": "S0020",
+        "name": "Gill, Romero and Rodriguez",
+        "total_shipments": 26,
+        "on_time_shipments": 19,
+        "on_time_ratio": 0.7307692170143127
+      },
+      {
+        "supplierid": "S0036",
+        "name": "Hancock Inc",
+        "total_shipments": 27,
+        "on_time_shipments": 25,
+        "on_time_ratio": 0.9259259104728699
+      },
+      {
+        "supplierid": "S0030",
+        "name": "Johnston, Sanchez and Kennedy",
+        "total_shipments": 30,
+        "on_time_shipments": 23,
+        "on_time_ratio": 0.7666666507720947
+      },
+      {
+        "supplierid": "S0045",
+        "name": "Anderson-Bailey",
+        "total_shipments": 24,
+        "on_time_shipments": 18,
+        "on_time_ratio": 0.75
+      },
+      {
+        "supplierid": "S0034",
+        "name": "Morton-Chase",
+        "total_shipments": 25,
+        "on_time_shipments": 21,
+        "on_time_ratio": 0.8399999737739563
+      },
+      {
+        "supplierid": "S0040",
+        "name": "York Inc",
+        "total_shipments": 20,
+        "on_time_shipments": 15,
+        "on_time_ratio": 0.75
+      },
+      {
+        "supplierid": "S0058",
+        "name": "Bailey-Hoover",
+        "total_shipments": 28,
+        "on_time_shipments": 19,
+        "on_time_ratio": 0.6785714030265808
+      },
+      {
+        "supplierid": "S0049",
+        "name": "Wagner-King",
+        "total_shipments": 27,
+        "on_time_shipments": 19,
+        "on_time_ratio": 0.7037037014961243
+      },
+      {
+        "supplierid": "S0057",
+        "name": "Rodriguez, Brennan and Garrison",
+        "total_shipments": 19,
+        "on_time_shipments": 17,
+        "on_time_ratio": 0.8947368264198303
+      },
+      {
+        "supplierid": "S0012",
+        "name": "Perez Inc",
+        "total_shipments": 28,
+        "on_time_shipments": 19,
+        "on_time_ratio": 0.6785714030265808
+      },
+      {
+        "supplierid": "S0008",
+        "name": "Lee, Jones and Stanley",
+        "total_shipments": 29,
+        "on_time_shipments": 22,
+        "on_time_ratio": 0.7586206793785095
+      },
+      {
+        "supplierid": "S0054",
+        "name": "Henson, Russell and Oliver",
+        "total_shipments": 25,
+        "on_time_shipments": 20,
+        "on_time_ratio": 0.800000011920929
+      },
+      {
+        "supplierid": "S0022",
+        "name": "Hickman LLC",
+        "total_shipments": 22,
+        "on_time_shipments": 18,
+        "on_time_ratio": 0.8181818127632141
+      },
+      {
+        "supplierid": "S0044",
+        "name": "Ellis PLC",
+        "total_shipments": 33,
+        "on_time_shipments": 27,
+        "on_time_ratio": 0.8181818127632141
+      },
+      {
+        "supplierid": "S0006",
+        "name": "Howard LLC",
+        "total_shipments": 25,
+        "on_time_shipments": 18,
+        "on_time_ratio": 0.7200000286102295
+      },
+      {
+        "supplierid": "S0010",
+        "name": "Santiago Ltd",
+        "total_shipments": 24,
+        "on_time_shipments": 20,
+        "on_time_ratio": 0.8333333134651184
+      },
+      {
+        "supplierid": "S0014",
+        "name": "Wilkerson-Day",
+        "total_shipments": 24,
+        "on_time_shipments": 17,
+        "on_time_ratio": 0.7083333134651184
+      }
+    ]
+  },
+  {
     "id": 15,
     "question": "What are the days of inventory on hand for Battery components at the Austin TX warehouse, based on average usage over the last 30 days?",
     "agent": "sql",
@@ -147,9 +1389,16 @@
     "difficulty": "hard",
     "expected_sql": "WITH battery_usage AS (\n  SELECT SUM(cu.totalquantityused) AS total_used_30d\n  FROM component_usage cu\n  JOIN production_schedule ps ON ps.scheduleid = cu.scheduleid\n  JOIN production_lines pl ON pl.lineid = ps.lineid\n  JOIN components c ON c.componentid = cu.componentid\n  WHERE pl.location = 'Austin TX'\n    AND c.type = 'Battery'\n    AND DATE(ps.date) BETWEEN DATE('now', '-30 days') AND DATE('now')\n),\nbattery_stock AS (\n  SELECT SUM(i.quantityinstock) AS current_stock\n  FROM inventory i\n  JOIN components c ON c.componentid = i.componentid\n  WHERE i.warehouselocation = 'Austin TX'\n    AND c.type = 'Battery'\n)\nSELECT bs.current_stock,\n       bu.total_used_30d / 30.0 AS avg_daily_usage,\n       bs.current_stock / (bu.total_used_30d / 30.0) AS days_of_inventory\nFROM battery_stock bs, battery_usage bu;",
     "expected_answer_type": "kpi",
-    "tables_involved": ["component_usage", "production_schedule", "production_lines", "components", "inventory"]
-    },
-    {
+    "tables_involved": [
+      "component_usage",
+      "production_schedule",
+      "production_lines",
+      "components",
+      "inventory"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 16,
     "question": "What is the inbound dock schedule at Fremont CA for the next 2 hours?",
     "agent": "docking",
@@ -157,9 +1406,14 @@
     "difficulty": "easy",
     "expected_api": "POST /dock/schedule/query",
     "expected_answer_type": "schedule",
-    "tables_involved": ["dock_assignments", "inbound_trucks", "dock_doors"]
-    },
-    {
+    "tables_involved": [
+      "dock_assignments",
+      "inbound_trucks",
+      "dock_doors"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 17,
     "question": "Is door FCX-D12 currently active and able to accept jobs?",
     "agent": "docking",
@@ -167,9 +1421,12 @@
     "difficulty": "easy",
     "expected_api": "POST /dock/door/status",
     "expected_answer_type": "boolean",
-    "tables_involved": ["dock_doors"]
-    },
-    {
+    "tables_involved": [
+      "dock_doors"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 18,
     "question": "Which outbound loads are planned to depart from Fremont CA tonight (before midnight)?",
     "agent": "docking",
@@ -177,9 +1434,12 @@
     "difficulty": "easy",
     "expected_api": "POST /dock/schedule/query",
     "expected_answer_type": "schedule",
-    "tables_involved": ["outbound_loads"]
-    },
-    {
+    "tables_involved": [
+      "outbound_loads"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 19,
     "question": "What is the current yard queue at Shanghai and the order of trucks waiting?",
     "agent": "docking",
@@ -187,9 +1447,13 @@
     "difficulty": "easy",
     "expected_api": "POST /dock/queue/query",
     "expected_answer_type": "list",
-    "tables_involved": ["yard_queue", "inbound_trucks"]
-    },
-    {
+    "tables_involved": [
+      "yard_queue",
+      "inbound_trucks"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 20,
     "question": "Which dock doors at Fremont CA will be idle in the next 30 minutes?",
     "agent": "docking",
@@ -197,9 +1461,13 @@
     "difficulty": "medium",
     "expected_api": "POST /dock/door/status",
     "expected_answer_type": "list",
-    "tables_involved": ["dock_doors", "dock_assignments"]
-    },
-    {
+    "tables_involved": [
+      "dock_doors",
+      "dock_assignments"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 21,
     "question": "Given the current inbound schedule at Fremont CA, which truck is expected to experience the longest waiting time before unloading?",
     "agent": "docking",
@@ -207,9 +1475,15 @@
     "difficulty": "medium",
     "expected_api": "POST /dock/analysis/wait_times",
     "expected_answer_type": "table",
-    "tables_involved": ["inbound_trucks", "dock_assignments", "dock_doors", "yard_queue"]
-    },
-    {
+    "tables_involved": [
+      "inbound_trucks",
+      "dock_assignments",
+      "dock_doors",
+      "yard_queue"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 22,
     "question": "For Fremont CA over the next hour, do we have enough crews and forklifts to cover all scheduled dock assignments?",
     "agent": "docking",
@@ -217,9 +1491,13 @@
     "difficulty": "medium",
     "expected_api": "POST /dock/resources/check",
     "expected_answer_type": "analysis",
-    "tables_involved": ["dock_resources", "dock_assignments"]
-    },
-    {
+    "tables_involved": [
+      "dock_resources",
+      "dock_assignments"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 23,
     "question": "Resequence the inbound queue at Fremont CA for the next 2 hours to prioritize higher-priority trucks without causing outbound loads to miss their cutoff times.",
     "agent": "docking",
@@ -227,9 +1505,15 @@
     "difficulty": "medium",
     "expected_api": "POST /dock/optimization/sequence",
     "expected_answer_type": "optimization_plan",
-    "tables_involved": ["inbound_trucks", "yard_queue", "dock_assignments", "outbound_loads"]
-    },
-    {
+    "tables_involved": [
+      "inbound_trucks",
+      "yard_queue",
+      "dock_assignments",
+      "outbound_loads"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 24,
     "question": "Generate an optimized door and crew assignment plan for all inbound and outbound work at Fremont CA over the next 4 hours, minimizing truck wait times while respecting door activity and resource limits.",
     "agent": "docking",
@@ -237,9 +1521,16 @@
     "difficulty": "hard",
     "expected_api": "POST /dock/optimization/plan",
     "expected_answer_type": "plan",
-    "tables_involved": ["dock_assignments", "dock_doors", "dock_resources", "inbound_trucks", "outbound_loads"]
-    },
-    {
+    "tables_involved": [
+      "dock_assignments",
+      "dock_doors",
+      "dock_resources",
+      "inbound_trucks",
+      "outbound_loads"
+    ],
+    "expected_results": null
+  },
+  {
     "id": 25,
     "question": "Identify any scheduling conflicts at Fremont CA where multiple jobs are double-booked on the same door or available crews/forklifts are over-allocated, and propose adjustments to resolve them.",
     "agent": "docking",
@@ -247,7 +1538,11 @@
     "difficulty": "hard",
     "expected_api": "POST /dock/conflicts/analyze",
     "expected_answer_type": "analysis",
-    "tables_involved": ["dock_assignments", "dock_doors", "dock_resources"]
-    }
-    ]
-    
+    "tables_involved": [
+      "dock_assignments",
+      "dock_doors",
+      "dock_resources"
+    ],
+    "expected_results": null
+  }
+]
